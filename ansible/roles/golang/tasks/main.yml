@@ -1,40 +1,24 @@
 ---
-- name: Check if Go is installed
-  ansible.builtin.stat:
-    path: /usr/local/go/bin/go
-  register: go_binary
+# Install Go via Ubuntu's golang-go package or snap
+# (dl.google.com is unreachable from some networks)
 
-- name: Download Go {{ go_version }}
-  ansible.builtin.get_url:
-    url: "https://go.dev/dl/go{{ go_version }}.linux-amd64.tar.gz"
-    dest: "/tmp/go{{ go_version }}.linux-amd64.tar.gz"
-    mode: "0644"
-  when: not go_binary.stat.exists
+- name: Install Go from Ubuntu repository
+  ansible.builtin.apt:
+    name:
+      - golang-go
+    state: present
+    update_cache: yes
 
-- name: Remove old Go installation
-  ansible.builtin.file:
-    path: /usr/local/go
-    state: absent
-  when: not go_binary.stat.exists
-
-- name: Extract Go
-  ansible.builtin.unarchive:
-    src: "/tmp/go{{ go_version }}.linux-amd64.tar.gz"
-    dest: /usr/local
-    remote_src: yes
-  when: not go_binary.stat.exists
-
-- name: Add Go to system PATH
+- name: Add Go paths to system profile
   ansible.builtin.copy:
     dest: /etc/profile.d/go.sh
     content: |
-      export PATH=$PATH:/usr/local/go/bin
       export GOPATH=$HOME/go
       export PATH=$PATH:$GOPATH/bin
     mode: "0644"
 
 - name: Verify Go installation
-  ansible.builtin.command: /usr/local/go/bin/go version
+  ansible.builtin.command: go version
   register: go_ver
   changed_when: false
 

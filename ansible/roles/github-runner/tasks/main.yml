@@ -1,7 +1,7 @@
 ---
-# This role installs the GitHub Actions runner binary.
-# Registration is done separately via the setup-runner.sh script
-# because it requires a short-lived registration token from GitHub.
+# GitHub Actions self-hosted runner installation.
+# If the runner tarball can't be downloaded (geo-restricted),
+# pre-stage it at /tmp/actions-runner-<version>.tar.gz via SCP.
 
 - name: Create runner directory
   ansible.builtin.file:
@@ -24,12 +24,19 @@
     path: /data/actions-runner/config.sh
   register: runner_config
 
+- name: Check for pre-staged runner tarball
+  ansible.builtin.stat:
+    path: "/tmp/actions-runner-{{ github_runner_version }}.tar.gz"
+  register: prestaged_runner
+
 - name: Download GitHub Actions runner
   ansible.builtin.get_url:
     url: "https://github.com/actions/runner/releases/download/v{{ github_runner_version }}/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
     dest: "/tmp/actions-runner-{{ github_runner_version }}.tar.gz"
     mode: "0644"
-  when: not runner_config.stat.exists
+    timeout: 30
+  when: not runner_config.stat.exists and not prestaged_runner.stat.exists
+  ignore_errors: true
 
 - name: Extract runner
   ansible.builtin.unarchive:
@@ -48,4 +55,4 @@
   ansible.builtin.debug:
     msg: >
       Runner binary installed at /data/actions-runner.
-      Run setup-runner.sh with a GitHub PAT to register it.
+      Run scripts/setup-runner.sh with a GitHub PAT to register.
