@@ -1,0 +1,23 @@
+---
+# DNS
+dns_servers:
+  - "4.2.2.4"   # Level3
+  - "8.8.8.8"     # Google
+
+# Data disk
+data_device: /dev/vdb
+data_mount: /data
+
+# Docker
+docker_data_root: /data/docker
+
+# Node.js (for npm)
+node_major_version: "22"
+
+# Go
+go_version: "1.23.6"
+
+# GitHub Actions Runner
+github_runner_version: "2.322.0"
+github_runner_labels: "self-hosted,linux,x64,openstack"
+github_runner_work_dir: /data/actions-runner/_work

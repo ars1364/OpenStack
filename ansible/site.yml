@@ -1,0 +1,36 @@
+---
+# Keemiyamahour Runner - Full provisioning playbook
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini site.yml
+#
+# Run specific roles:
+#   ansible-playbook site.yml --tags dns
+#   ansible-playbook site.yml --tags docker,registry
+
+- name: Provision keemiyamahour runner
+  hosts: runners
+  become: true
+  gather_facts: true
+
+  roles:
+    - role: dns
+      tags: [dns]
+
+    - role: common
+      tags: [common, base]
+
+    - role: docker
+      tags: [docker]
+
+    - role: nodejs
+      tags: [nodejs, node]
+
+    - role: golang
+      tags: [golang, go]
+
+    - role: github-runner
+      tags: [runner, github]
+
+    - role: registry
+      tags: [registry, mirror]

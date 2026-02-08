@@ -1,0 +1,81 @@
+---
+# Local registry/mirror services for offline access
+# - Docker Registry (pull-through cache for Docker Hub, GHCR, etc.)
+# - Verdaccio (npm registry proxy/cache)
+# - Athens (Go module proxy/cache)
+# - apt-cacher-ng (Ubuntu/Debian package cache)
+# All run as Docker containers on the data disk
+
+- name: Create registry directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+  loop:
+    - /data/registry
+    - /data/registry/docker
+    - /data/registry/docker/certs
+    - /data/registry/verdaccio
+    - /data/registry/verdaccio/storage
+    - /data/registry/verdaccio/conf
+    - /data/registry/athens
+    - /data/registry/athens/storage
+    - /data/registry/apt-cacher
+    - /data/registry/docker-compose
+
+- name: Deploy Docker Registry config (pull-through cache)
+  ansible.builtin.template:
+    src: docker-registry-config.yml.j2
+    dest: /data/registry/docker/config.yml
+    mode: "0644"
+  notify: Restart registry stack
+
+- name: Deploy Verdaccio config (npm proxy)
+  ansible.builtin.template:
+    src: verdaccio-config.yml.j2
+    dest: /data/registry/verdaccio/conf/config.yaml
+    mode: "0644"
+  notify: Restart registry stack
+
+- name: Deploy docker-compose for all registry services
+  ansible.builtin.template:
+    src: docker-compose.yml.j2
+    dest: /data/registry/docker-compose/docker-compose.yml
+    mode: "0644"
+  notify: Restart registry stack
+
+- name: Start registry stack
+  ansible.builtin.shell: |
+    cd /data/registry/docker-compose
+    docker compose up -d
+  become_user: ubuntu
+  environment:
+    HOME: /home/ubuntu
+
+- name: Wait for services to be ready
+  ansible.builtin.uri:
+    url: "http://127.0.0.1:{{ item.port }}/{{ item.path }}"
+    status_code: 200
+  loop:
+    - { port: 5000, path: "v2/" }
+    - { port: 5001, path: "v2/" }
+    - { port: 5002, path: "v2/" }
+    - { port: 4873, path: "-/ping" }
+    - { port: 3000, path: "healthz" }
+  retries: 10
+  delay: 5
+  register: health
+  ignore_errors: true
+
+- name: Show registry endpoints
+  ansible.builtin.debug:
+    msg: |
+      Registry services running:
+        Docker Hub mirror:  http://{{ ansible_host }}:5000
+        GHCR mirror:        http://{{ ansible_host }}:5001
+        Quay mirror:        http://{{ ansible_host }}:5002
+        npm mirror:         http://{{ ansible_host }}:4873
+        Go module proxy:    http://{{ ansible_host }}:3000
+        apt cache:          http://{{ ansible_host }}:3142

@@ -1,0 +1,76 @@
+version: "3.9"
+
+services:
+  # ── Docker Hub Pull-Through Cache ──
+  docker-hub-mirror:
+    image: registry:2
+    container_name: docker-hub-mirror
+    restart: always
+    ports:
+      - "5000:5000"
+    volumes:
+      - /data/registry/docker/hub-data:/var/lib/registry
+      - /data/registry/docker/config.yml:/etc/docker/registry/config.yml:ro
+    environment:
+      REGISTRY_PROXY_REMOTEURL: https://registry-1.docker.io
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+
+  # ── GHCR (GitHub Container Registry) Pull-Through Cache ──
+  ghcr-mirror:
+    image: registry:2
+    container_name: ghcr-mirror
+    restart: always
+    ports:
+      - "5001:5000"
+    volumes:
+      - /data/registry/docker/ghcr-data:/var/lib/registry
+    environment:
+      REGISTRY_PROXY_REMOTEURL: https://ghcr.io
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+
+  # ── Quay.io Pull-Through Cache ──
+  quay-mirror:
+    image: registry:2
+    container_name: quay-mirror
+    restart: always
+    ports:
+      - "5002:5000"
+    volumes:
+      - /data/registry/docker/quay-data:/var/lib/registry
+    environment:
+      REGISTRY_PROXY_REMOTEURL: https://quay.io
+      REGISTRY_HTTP_ADDR: 0.0.0.0:5000
+
+  # ── Verdaccio (npm Registry Proxy/Cache) ──
+  verdaccio:
+    image: verdaccio/verdaccio:6
+    container_name: verdaccio
+    restart: always
+    ports:
+      - "4873:4873"
+    volumes:
+      - /data/registry/verdaccio/storage:/verdaccio/storage
+      - /data/registry/verdaccio/conf:/verdaccio/conf
+
+  # ── Athens (Go Module Proxy/Cache) ──
+  athens:
+    image: gomods/athens:v0.14.1
+    container_name: athens
+    restart: always
+    ports:
+      - "3000:3000"
+    volumes:
+      - /data/registry/athens/storage:/var/lib/athens
+    environment:
+      ATHENS_DISK_STORAGE_ROOT: /var/lib/athens
+      ATHENS_STORAGE_TYPE: disk
+
+  # ── apt-cacher-ng (Debian/Ubuntu Package Cache) ──
+  apt-cacher:
+    image: sameersbn/apt-cacher-ng:3.7.4-20230310
+    container_name: apt-cacher
+    restart: always
+    ports:
+      - "3142:3142"
+    volumes:
+      - /data/registry/apt-cacher/data:/var/cache/apt-cacher-ng

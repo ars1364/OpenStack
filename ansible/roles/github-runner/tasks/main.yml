@@ -1,0 +1,51 @@
+---
+# This role installs the GitHub Actions runner binary.
+# Registration is done separately via the setup-runner.sh script
+# because it requires a short-lived registration token from GitHub.
+
+- name: Create runner directory
+  ansible.builtin.file:
+    path: /data/actions-runner
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+
+- name: Create runner work directory
+  ansible.builtin.file:
+    path: "{{ github_runner_work_dir }}"
+    state: directory
+    owner: ubuntu
+    group: ubuntu
+    mode: "0755"
+
+- name: Check if runner is already installed
+  ansible.builtin.stat:
+    path: /data/actions-runner/config.sh
+  register: runner_config
+
+- name: Download GitHub Actions runner
+  ansible.builtin.get_url:
+    url: "https://github.com/actions/runner/releases/download/v{{ github_runner_version }}/actions-runner-linux-x64-{{ github_runner_version }}.tar.gz"
+    dest: "/tmp/actions-runner-{{ github_runner_version }}.tar.gz"
+    mode: "0644"
+  when: not runner_config.stat.exists
+
+- name: Extract runner
+  ansible.builtin.unarchive:
+    src: "/tmp/actions-runner-{{ github_runner_version }}.tar.gz"
+    dest: /data/actions-runner
+    remote_src: yes
+    owner: ubuntu
+    group: ubuntu
+  when: not runner_config.stat.exists
+
+- name: Install runner dependencies
+  ansible.builtin.command: /data/actions-runner/bin/installdependencies.sh
+  when: not runner_config.stat.exists
+
+- name: Show runner ready message
+  ansible.builtin.debug:
+    msg: >
+      Runner binary installed at /data/actions-runner.
+      Run setup-runner.sh with a GitHub PAT to register it.

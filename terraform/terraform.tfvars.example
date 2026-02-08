@@ -1,0 +1,21 @@
+# Copy to terraform.tfvars and fill in secrets
+# DO NOT commit terraform.tfvars to version control
+
+auth_url     = "http://172.30.204.10:5000/v3"
+username     = "admin"
+password     = "CHANGE_ME"
+project_name = "VPC_dariaideh"
+region       = "dc1"
+
+vm_name          = "keemiyamahour-runner"
+flavor_name      = "C4R8"
+image_name       = "Ubuntu24"
+network_name     = "Provider"
+boot_volume_size = 20
+boot_volume_type = "bus"
+data_volume_size = 2000
+data_volume_type = "eco"
+vm_password      = "CHANGE_ME"
+
+# DNS servers (4.2.2.4 and 8.8.8.8 confirmed working from Provider network)
+dns_servers = ["4.2.2.4", "8.8.8.8"]

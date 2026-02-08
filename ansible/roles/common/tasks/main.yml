@@ -1,0 +1,63 @@
+---
+- name: Add hostname to /etc/hosts
+  ansible.builtin.lineinfile:
+    path: /etc/hosts
+    line: "127.0.1.1 {{ ansible_hostname }}"
+    regexp: "^127\\.0\\.1\\.1"
+    state: present
+
+- name: Wait for apt lock to be released
+  ansible.builtin.shell: |
+    while fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+          fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
+      sleep 5
+    done
+  changed_when: false
+  timeout: 300
+
+- name: Update apt cache
+  ansible.builtin.apt:
+    update_cache: yes
+    cache_valid_time: 3600
+
+- name: Install base packages
+  ansible.builtin.apt:
+    name:
+      - curl
+      - wget
+      - git
+      - jq
+      - htop
+      - unzip
+      - build-essential
+      - ca-certificates
+      - gnupg
+      - apt-transport-https
+      - python3-pip
+      - software-properties-common
+    state: present
+
+- name: Format data disk if not formatted
+  ansible.builtin.command: mkfs.ext4 -L data {{ data_device }}
+  when: ansible_facts['devices']['vdb']['partitions'] | length == 0
+  args:
+    creates: /data/lost+found
+  ignore_errors: true
+
+- name: Create data mount point
+  ansible.builtin.file:
+    path: "{{ data_mount }}"
+    state: directory
+    mode: "0755"
+
+- name: Mount data disk
+  ansible.posix.mount:
+    path: "{{ data_mount }}"
+    src: "LABEL=data"
+    fstype: ext4
+    opts: defaults,nofail
+    state: mounted
+
+- name: Set timezone
+  community.general.timezone:
+    name: Asia/Tehran

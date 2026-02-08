@@ -1,0 +1,9 @@
+---
+- name: Restart registry stack
+  ansible.builtin.shell: |
+    cd /data/registry/docker-compose
+    docker compose down
+    docker compose up -d
+  become_user: ubuntu
+  environment:
+    HOME: /home/ubuntu

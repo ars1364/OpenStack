@@ -1,0 +1,30 @@
+---
+- name: Stop and disable systemd-resolved
+  ansible.builtin.systemd:
+    name: systemd-resolved
+    state: stopped
+    enabled: false
+  ignore_errors: true
+
+- name: Remove resolv.conf symlink
+  ansible.builtin.file:
+    path: /etc/resolv.conf
+    state: absent
+
+- name: Write static resolv.conf
+  ansible.builtin.copy:
+    dest: /etc/resolv.conf
+    content: |
+      {% for dns in dns_servers %}
+      nameserver {{ dns }}
+      {% endfor %}
+    mode: "0644"
+
+- name: Verify DNS resolution
+  ansible.builtin.command: nslookup github.com
+  register: dns_check
+  changed_when: false
+
+- name: Show DNS result
+  ansible.builtin.debug:
+    msg: "{{ dns_check.stdout_lines[:3] }}"

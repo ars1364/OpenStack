@@ -1,0 +1,46 @@
+#cloud-config
+
+# ── User & Auth ──
+password: ${vm_password}
+chpasswd:
+  expire: false
+  list:
+    - ubuntu:${vm_password}
+ssh_pwauth: true
+disable_root: false
+
+# ── DNS Configuration ──
+manage_resolv_conf: true
+resolv_conf:
+  nameservers:
+    - ${dns_1}
+    - ${dns_2}
+  options:
+    edns0: true
+
+# ── Post-boot commands ──
+runcmd:
+  # Fix SSH password auth
+  - sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+  - sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config.d/*.conf /etc/ssh/sshd_config 2>/dev/null || true
+  - sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+  - systemctl restart sshd
+
+  # Persist DNS (override systemd-resolved)
+  - systemctl disable --now systemd-resolved
+  - rm -f /etc/resolv.conf
+  - |
+    cat > /etc/resolv.conf << 'DNS'
+    nameserver ${dns_1}
+    nameserver ${dns_2}
+    DNS
+  - sed -i 's/^    //' /etc/resolv.conf
+
+  # Format and mount data disk if not already formatted
+  - |
+    if ! blkid /dev/vdb | grep -q ext4; then
+      mkfs.ext4 -L data /dev/vdb
+    fi
+  - mkdir -p /data
+  - mount -o defaults /dev/vdb /data || true
+  - grep -q '/dev/vdb' /etc/fstab || echo 'LABEL=data /data ext4 defaults,nofail 0 2' >> /etc/fstab
