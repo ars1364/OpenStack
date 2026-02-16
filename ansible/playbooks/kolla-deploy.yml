@@ -1,0 +1,391 @@
+---
+##############################################################################
+# kolla-deploy.yml - Deploy OpenStack via Kolla-Ansible
+#
+# This playbook:
+#   1. Sets up the Kolla-Ansible deployment environment (venv, configs)
+#   2. Prepares target nodes (LVM, Docker config, /etc/hosts)
+#   3. Runs Kolla-Ansible bootstrap, prechecks, pull, and deploy
+#
+# Key lessons applied:
+#   - Disable cloud-init manage_etc_hosts (prevents duplicate hostname IPs)
+#   - /etc/hosts uses ONLY api_interface IPs (unique resolution required)
+#   - Cinder VG created before prechecks
+#   - Octavia certs generated before prechecks
+#   - Pull images before deploy (avoids Nexus 503 under load)
+#   - MariaDB deployed separately first (Galera bootstrap needs time)
+#   - Audit for public repos after bootstrap
+#   - Patch passlib for bcrypt 5.x compatibility (Prometheus role)
+#   - Disable OVN SB relay for small clusters (kolla bug: missing RELAY_ID)
+#   - Octavia physnet-oct must be in ML2 flat_networks + bridge mappings
+#
+# Usage:
+#   ansible-playbook -i ../inventory/hosts.yml kolla-deploy.yml
+#
+# All packages pulled from *.cloudinative.com (no public internet).
+##############################################################################
+
+- name: "Phase 3a: Prepare deployment host"
+  hosts: localhost
+  connection: local
+  become: true
+  vars:
+    kolla_venv: "/opt/kolla-venv"
+    kolla_config_dir: "/etc/kolla"
+    lab_kolla_dir: "{{ playbook_dir }}/../../kolla"
+    pip_index_url: "https://npm.cloudinative.com/repository/pypi-proxy/simple/"
+
+  tasks:
+    - name: Install system dependencies
+      ansible.builtin.apt:
+        name:
+          - python3-dev
+          - python3-venv
+          - libffi-dev
+          - gcc
+          - libssl-dev
+          - git
+          - genisoimage
+        state: present
+        update_cache: yes
+
+    - name: Create Kolla venv
+      ansible.builtin.command:
+        cmd: python3 -m venv {{ kolla_venv }}
+        creates: "{{ kolla_venv }}/bin/activate"
+
+    - name: Install pip packages in venv
+      ansible.builtin.pip:
+        name:
+          - pip>=24.0
+          - kolla-ansible==20.1.0
+          - ansible-core>=2.17,<2.19
+          - docker
+        virtualenv: "{{ kolla_venv }}"
+        extra_args: "-i {{ pip_index_url }}"
+
+    - name: Install Ansible Galaxy requirements
+      ansible.builtin.command:
+        cmd: "{{ kolla_venv }}/bin/kolla-ansible install-deps"
+      changed_when: true
+
+    - name: Create /etc/kolla directory
+      ansible.builtin.file:
+        path: "{{ kolla_config_dir }}"
+        state: directory
+        mode: "0755"
+
+    - name: Copy globals.yml
+      ansible.builtin.copy:
+        src: "{{ lab_kolla_dir }}/globals.yml"
+        dest: "{{ kolla_config_dir }}/globals.yml"
+        mode: "0644"
+
+    - name: Copy multinode inventory
+      ansible.builtin.copy:
+        src: "{{ lab_kolla_dir }}/multinode"
+        dest: "{{ kolla_config_dir }}/multinode"
+        mode: "0644"
+
+    - name: Copy config overrides
+      ansible.builtin.copy:
+        src: "{{ lab_kolla_dir }}/config/"
+        dest: "{{ kolla_config_dir }}/config/"
+        mode: "0644"
+
+    - name: Check if passwords.yml exists
+      ansible.builtin.stat:
+        path: "{{ kolla_config_dir }}/passwords.yml"
+      register: passwords_file
+
+    - name: Generate passwords
+      ansible.builtin.command:
+        cmd: "{{ kolla_venv }}/bin/kolla-genpwd"
+      when: not passwords_file.stat.exists
+      changed_when: true
+
+    - name: Create ansible.cfg for kolla
+      ansible.builtin.copy:
+        content: |
+          [defaults]
+          host_key_checking = False
+          pipelining = True
+          forks = 20
+          private_key_file = /root/.ssh/id_ed25519
+
+          [ssh_connection]
+          ssh_args = -o ControlMaster=auto -o ControlPersist=60s
+        dest: "{{ kolla_config_dir }}/ansible.cfg"
+        mode: "0644"
+
+- name: "Phase 3b: Prepare lab VMs for Kolla"
+  hosts: lab_vms
+  become: true
+  vars:
+    ansible_user: ubuntu
+    # LESSON: /etc/hosts must map hostnames to api_interface IPs ONLY
+    # Cloud-init manage_etc_hosts adds mgmt IPs causing duplicate resolution
+    # which fails kolla prechecks ("Hostname has to resolve uniquely")
+    api_hosts:
+      - "192.168.204.11 lab-ctrl01"
+      - "192.168.204.12 lab-ctrl02"
+      - "192.168.204.13 lab-ctrl03"
+      - "192.168.204.14 lab-comp04"
+      - "192.168.204.15 lab-comp05"
+
+  tasks:
+    - name: Wait for VMs to be ready
+      ansible.builtin.wait_for_connection:
+        delay: 5
+        timeout: 300
+
+    # LESSON: Disable cloud-init manage_etc_hosts to prevent it from
+    # re-adding mgmt IPs that conflict with kolla's api_interface entries
+    - name: Disable cloud-init manage_etc_hosts
+      ansible.builtin.lineinfile:
+        path: /etc/cloud/cloud.cfg
+        regexp: '^manage_etc_hosts:'
+        line: 'manage_etc_hosts: false'
+      ignore_errors: true
+
+    # LESSON: Remove any mgmt network (192.168.100.x) entries for lab hostnames
+    # Only api_interface IPs (192.168.204.x) should resolve
+    - name: Remove mgmt IP entries for lab hostnames from /etc/hosts
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        regexp: '^192\.168\.100\.\d+\s+lab-'
+        state: absent
+
+    - name: Ensure /etc/hosts has lab nodes with API IPs only
+      ansible.builtin.lineinfile:
+        path: /etc/hosts
+        line: "{{ item }}"
+        state: present
+      loop: "{{ api_hosts }}"
+
+    - name: Ensure Docker is running
+      ansible.builtin.systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: Configure Docker daemon for Kolla
+      ansible.builtin.copy:
+        content: |
+          {
+            "registry-mirrors": ["https://docker.cloudinative.com"],
+            "insecure-registries": [],
+            "log-driver": "json-file",
+            "log-opts": { "max-size": "10m", "max-file": "3" },
+            "storage-driver": "overlay2",
+            "live-restore": true
+          }
+        dest: /etc/docker/daemon.json
+        mode: "0644"
+      notify: Restart Docker
+
+    # LESSON: Cinder VG must exist BEFORE prechecks, not after
+    - name: Create Cinder LVM volume group
+      block:
+        - name: Create loopback file for Cinder LVM (20GB)
+          ansible.builtin.command:
+            cmd: "truncate -s 20G /var/lib/cinder-volumes.img"
+            creates: /var/lib/cinder-volumes.img
+
+        - name: Check if VG already exists
+          ansible.builtin.command:
+            cmd: "vgs cinder-volumes"
+          register: vg_check
+          changed_when: false
+          failed_when: false
+
+        - name: Setup loopback and create VG
+          ansible.builtin.shell: |
+            LOOP=$(losetup --show -f /var/lib/cinder-volumes.img)
+            pvcreate "$LOOP"
+            vgcreate cinder-volumes "$LOOP"
+          when: vg_check.rc != 0
+          changed_when: true
+
+        - name: Ensure loopback persists across reboots
+          ansible.builtin.copy:
+            content: |
+              #!/bin/bash
+              losetup -f /var/lib/cinder-volumes.img
+            dest: /etc/rc.local
+            mode: "0755"
+      tags: [cinder-lvm]
+
+    - name: Load required kernel modules
+      community.general.modprobe:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - br_netfilter
+        - ip_vs
+        - ip_vs_rr
+        - ip_vs_wrr
+        - ip_vs_sh
+        - nf_conntrack
+      ignore_errors: true
+
+  handlers:
+    - name: Restart Docker
+      ansible.builtin.systemd:
+        name: docker
+        state: restarted
+
+# LESSON: Audit for public repos after bootstrap — Docker APT repo
+# can sneak in via bootstrap-servers
+- name: "Phase 3b-audit: Remove any public repos from VMs"
+  hosts: lab_vms
+  become: true
+  vars:
+    ansible_user: ubuntu
+
+  tasks:
+    - name: Find public Docker APT sources
+      ansible.builtin.find:
+        paths: /etc/apt/sources.list.d/
+        patterns: "docker*"
+        contains: "download.docker.com"
+      register: public_docker_sources
+
+    - name: Remove public Docker APT sources
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ public_docker_sources.files }}"
+      when: public_docker_sources.files | length > 0
+
+    - name: Verify no public APT repos remain
+      ansible.builtin.shell: |
+        grep -rh "^deb " /etc/apt/sources.list /etc/apt/sources.list.d/ 2>/dev/null | \
+        grep -v cloudinative | grep -v localhost | grep -v "^#" || true
+      register: public_repos
+      changed_when: false
+
+    - name: Warn if public repos found
+      ansible.builtin.debug:
+        msg: "WARNING: Public APT repos detected: {{ public_repos.stdout }}"
+      when: public_repos.stdout | length > 0
+
+- name: "Phase 3c: Run Kolla-Ansible"
+  hosts: localhost
+  connection: local
+  vars:
+    kolla_venv: "/opt/kolla-venv"
+    kolla_config_dir: "/etc/kolla"
+    kolla_cmd: "{{ kolla_venv }}/bin/kolla-ansible -i {{ kolla_config_dir }}/multinode"
+    kolla_env:
+      ANSIBLE_CONFIG: "{{ kolla_config_dir }}/ansible.cfg"
+      VIRTUAL_ENV: "{{ kolla_venv }}"
+      PATH: "{{ kolla_venv }}/bin:{{ ansible_env.PATH }}"
+      ANSIBLE_HOST_KEY_CHECKING: "false"
+
+  tasks:
+    # --- Patch passlib for bcrypt 5.x ---
+    # LESSON: passlib 1.7.4 is incompatible with bcrypt 5.x. The
+    # detect_wrap_bug() function fails with "password cannot be longer
+    # than 72 bytes" and __about__.__version__ is removed in bcrypt 5.x.
+    # This breaks Prometheus role's password_hash('bcrypt') filter.
+    - name: Patch passlib for bcrypt 5.x compatibility
+      ansible.builtin.script:
+        cmd: |
+          #!/bin/bash
+          PFILE="{{ kolla_venv }}/lib/python3.12/site-packages/passlib/handlers/bcrypt.py"
+          if [ ! -f "${PFILE}.bak" ]; then
+            cp "$PFILE" "${PFILE}.bak"
+          fi
+          # Fix 1: version detection - __about__ removed in bcrypt 5.x
+          sed -i '/version = _bcrypt\.__about__\.__version__/{
+            s/.*/            try:\n                version = _bcrypt.__about__.__version__\n            except AttributeError:\n                version = getattr(_bcrypt, "__version__", "5.0.0")/
+          }' "$PFILE"
+          # Fix 2: detect_wrap_bug causes 72-byte error - skip it
+          sed -i '/^        def detect_wrap_bug(ident):$/a\            return False  # patched: bcrypt 5.x compat' "$PFILE"
+          # Recompile
+          python3 -c "import py_compile; py_compile.compile('$PFILE')"
+      args:
+        executable: /bin/bash
+      become: true
+      changed_when: true
+
+    # --- Bootstrap ---
+    - name: Run kolla-ansible bootstrap-servers
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} bootstrap-servers"
+      environment: "{{ kolla_env }}"
+      changed_when: true
+      register: bootstrap_result
+
+    - name: Show bootstrap summary
+      ansible.builtin.debug:
+        msg: "Bootstrap completed: {{ bootstrap_result.rc }}"
+
+    # --- Octavia Certificates ---
+    # LESSON: Generate certs BEFORE prechecks — required even if Octavia not actively used
+    - name: Generate Octavia certificates
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} octavia-certificates"
+      environment: "{{ kolla_env }}"
+      changed_when: true
+
+    # --- Prechecks ---
+    - name: Run kolla-ansible prechecks
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} prechecks"
+      environment: "{{ kolla_env }}"
+      changed_when: true
+      register: prechecks_result
+
+    - name: Show prechecks summary
+      ansible.builtin.debug:
+        msg: "Prechecks completed: {{ prechecks_result.rc }}"
+
+    # --- Pull ---
+    # LESSON: Always pull before deploy. Separates network/registry issues
+    # from deployment logic. Nexus returns 503 under concurrent heavy load.
+    - name: Pull all container images (before deploy)
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} pull"
+      environment: "{{ kolla_env }}"
+      changed_when: true
+      register: pull_result
+
+    - name: Show pull summary
+      ansible.builtin.debug:
+        msg: "Pull completed: {{ pull_result.rc }}"
+
+    # --- Deploy MariaDB First ---
+    # LESSON: Galera cluster bootstrap takes longer than default 10s timeout.
+    # Deploy MariaDB separately and wait for it to stabilize before full deploy.
+    - name: Deploy MariaDB first (Galera bootstrap needs time)
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} deploy --tags mariadb"
+      environment: "{{ kolla_env }}"
+      changed_when: true
+      register: mariadb_result
+
+    - name: Wait for MariaDB cluster to stabilize
+      ansible.builtin.pause:
+        seconds: 30
+        prompt: "Waiting for MariaDB Galera cluster to fully stabilize..."
+
+    # --- Deploy Everything ---
+    - name: Deploy all OpenStack services
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} deploy"
+      environment: "{{ kolla_env }}"
+      changed_when: true
+      register: deploy_result
+
+    - name: Show deploy summary
+      ansible.builtin.debug:
+        msg: "Deploy completed: {{ deploy_result.rc }}"
+
+    # --- Post-Deploy ---
+    - name: Run kolla-ansible post-deploy
+      ansible.builtin.command:
+        cmd: "{{ kolla_cmd }} post-deploy"
+      environment: "{{ kolla_env }}"
+      changed_when: true
