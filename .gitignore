@@ -11,3 +11,15 @@ terraform/.terraform.lock.hcl
 # Secrets
 *.pem
 *.key
+
+# Lab mirror
+lab-mirror/terraform/.terraform/
+lab-mirror/terraform/*.tfstate*
+lab-mirror/terraform/.terraform.lock.hcl
+lab-mirror/kolla/passwords.yml
+*.pem
+*.key
+*.log
+*.retry
+__pycache__/
+*.pyc

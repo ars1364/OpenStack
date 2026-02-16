@@ -1,0 +1,99 @@
+---
+# Phase 1: Host Preparation for OpenStack Lab
+# Target: HPE DL360 Gen9 (localhost)
+# Run: ansible-playbook -i inventory/hosts.yml playbooks/host-prepare.yml
+
+- name: Prepare hypervisor host
+  hosts: hypervisor
+  become: true
+  vars:
+    disks:
+      - uuid: "9373bed8-e389-4ae9-95d6-a21658e4075d"
+        mount: /data/storage
+        pool: storage
+        comment: "3.6TB - Cinder volumes, images, backups"
+      - uuid: "69671cde-b965-4b15-ba39-35f89e422872"
+        mount: /data/vms
+        pool: vms
+        comment: "1.1TB - VM disks (libvirt)"
+      - uuid: "942a6069-a439-4aae-97e6-f9b5b3637495"
+        mount: /data/fast
+        pool: fast
+        comment: "931GB NVMe - OS disks, ephemeral"
+
+    kvm_packages:
+      - qemu-kvm
+      - libvirt-daemon-system
+      - libvirt-clients
+      - bridge-utils
+      - virtinst
+      - cpu-checker
+      - cloud-image-utils
+      - genisoimage
+
+  tasks:
+    - name: Install KVM/libvirt packages
+      apt:
+        name: "{{ kvm_packages }}"
+        state: present
+        update_cache: true
+
+    - name: Ensure libvirtd is running
+      systemd:
+        name: libvirtd
+        state: started
+        enabled: true
+
+    - name: Ensure nested virtualization is enabled
+      copy:
+        content: "options kvm_intel nested=1"
+        dest: /etc/modprobe.d/kvm-nested.conf
+      notify: reload kvm_intel
+
+    - name: Create mount points
+      file:
+        path: "{{ item.mount }}"
+        state: directory
+        mode: '0755'
+      loop: "{{ disks }}"
+
+    - name: Mount disks via fstab
+      mount:
+        path: "{{ item.mount }}"
+        src: "UUID={{ item.uuid }}"
+        fstype: ext4
+        opts: defaults,noatime
+        state: mounted
+      loop: "{{ disks }}"
+
+    - name: Define libvirt storage pools
+      command: virsh pool-define-as {{ item.pool }} dir --target {{ item.mount }}
+      loop: "{{ disks }}"
+      register: pool_define
+      failed_when: pool_define.rc != 0 and 'already exists' not in pool_define.stderr
+      changed_when: pool_define.rc == 0
+
+    - name: Start and autostart libvirt storage pools
+      command: "virsh {{ action }} {{ item.pool }}"
+      loop: "{{ disks }}"
+      loop_control:
+        label: "{{ action }} {{ item.pool }}"
+      vars:
+        action: "{{ outer_item }}"
+      with_items:
+        - pool-start
+        - pool-autostart
+      ignore_errors: true
+
+    - name: Add user to libvirt group
+      user:
+        name: ubuntu
+        groups: libvirt,docker
+        append: true
+
+  handlers:
+    - name: reload kvm_intel
+      shell: |
+        modprobe -r kvm_intel
+        modprobe kvm_intel nested=1
+      ignore_errors: true

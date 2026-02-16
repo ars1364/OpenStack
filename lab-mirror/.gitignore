@@ -1,0 +1,15 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate*
+terraform/.terraform.lock.hcl
+
+# Kolla secrets
+kolla/passwords.yml
+*.pem
+*.key
+
+# Temp files
+*.log
+*.retry
+__pycache__/
+*.pyc
