@@ -13,7 +13,10 @@
 
 hostname: ${hostname}
 fqdn: ${fqdn}
-manage_etc_hosts: true
+# LESSON: Must be false — kolla prechecks requires unique hostname resolution
+# to api_interface IPs only. manage_etc_hosts: true adds mgmt IPs causing
+# "Hostname has to resolve uniquely" failures.
+manage_etc_hosts: false
 timezone: UTC
 
 # SSH - key-based auth only

@@ -46,6 +46,20 @@
 
 18. **Nexus can't handle 5 concurrent heavy pullers** — Pre-pull images with `kolla-ansible pull` or pull node-by-node with `--limit` to avoid 503 errors from the Nexus proxy.
 
+## Gaps Closed (IaC completeness)
+
+All of these are now automated in `kolla-deploy.yml`:
+
+- [x] openstack.kolla collection installed from opendev stable/2025.1
+- [x] SSH key distributed to /root/.ssh/id_ed25519 for kolla root access
+- [x] ansible.cfg created with collections_path, pipelining, forks
+- [x] passlib patched for bcrypt 5.x before any kolla commands run
+- [x] Cinder loopback uses systemd unit (not rc.local) for boot persistence
+- [x] Kernel modules persisted via /etc/modules-load.d/kolla.conf
+- [x] Docker daemon.json re-applied after bootstrap (in case overwritten)
+- [x] Public repo audit + removal after bootstrap
+- [x] Cloud-init template set to manage_etc_hosts: false from the start
+
 ## Deployment Order (Correct)
 
 ```
