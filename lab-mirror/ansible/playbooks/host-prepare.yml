@@ -32,6 +32,42 @@
       - genisoimage
 
   tasks:
+    # AIRGAP: Configure all package sources to use cloudinative mirrors
+    - name: Configure pip to use cloudinative proxy
+      copy:
+        content: |
+          [global]
+          index-url = https://npm.cloudinative.com/repository/pypi-proxy/simple/
+          trusted-host = npm.cloudinative.com
+        dest: /etc/pip.conf
+        mode: "0644"
+
+    - name: Remove any public APT repos (hashicorp, github, etc)
+      file:
+        path: "/etc/apt/sources.list.d/{{ item }}"
+        state: absent
+      loop:
+        - hashicorp.list
+        - hashicorp.list.disabled
+        - github-cli.list
+        - github-cli.list.disabled
+        - nodesource.list
+      ignore_errors: true
+
+    - name: Configure Docker daemon for cloudinative registry mirror
+      copy:
+        content: |
+          {
+            "registry-mirrors": ["https://docker.cloudinative.com"],
+            "insecure-registries": [],
+            "bip": "172.18.0.1/16",
+            "log-driver": "json-file",
+            "log-opts": { "max-size": "10m", "max-file": "3" }
+          }
+        dest: /etc/docker/daemon.json
+        mode: "0644"
+      notify: restart docker
+
     - name: Install KVM/libvirt packages
       apt:
         name: "{{ kvm_packages }}"
@@ -96,4 +132,10 @@
       shell: |
         modprobe -r kvm_intel
         modprobe kvm_intel nested=1
+      ignore_errors: true
+
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
       ignore_errors: true

@@ -46,6 +46,31 @@
 
 18. **Nexus can't handle 5 concurrent heavy pullers** — Pre-pull images with `kolla-ansible pull` or pull node-by-node with `--limit` to avoid 503 errors from the Nexus proxy.
 
+## Airgap / Offline Deployment
+
+All traffic must route through `*.cloudinative.com` Nexus proxies. Zero direct public internet access.
+
+### What's handled:
+- **APT packages** → `archive.cloudinative.com` / `security.cloudinative.com` (cloud-init template)
+- **Docker images** → `quay.cloudinative.com` (kolla globals) + `docker.cloudinative.com` (daemon mirror)
+- **Docker CE APT** → `download.cloudinative.com` (cloud-init template)
+- **PyPI/pip** → `npm.cloudinative.com/repository/pypi-proxy/simple/` (pip.conf on host + VMs)
+- **Ansible collections** → Vendored in `vendor/ansible-collections-2025.1.tar.gz` (offline install)
+- **pip requirements** → Pinned in `vendor/requirements-kolla-venv.txt`
+
+### Pitfalls:
+- `kolla-ansible bootstrap-servers` adds `download.docker.com` APT repo on VMs — playbook removes it after
+- `kolla-ansible install-deps` pulls from Galaxy/opendev — playbook uses vendor tarball instead
+- HashiCorp/GitHub/NodeSource APT repos may exist on host — playbook removes them
+- Host `/etc/pip.conf` must exist or pip falls back to `pypi.org`
+- Docker `daemon.json` on both host AND VMs must have `registry-mirrors`
+
+### Vendor directory (`vendor/`)
+| File | Contents |
+|------|----------|
+| `ansible-collections-2025.1.tar.gz` | All Ansible collections (openstack.kolla + deps) |
+| `requirements-kolla-venv.txt` | Pinned pip freeze of working kolla venv |
+
 ## Gaps Closed (IaC completeness)
 
 All of these are now automated in `kolla-deploy.yml`:

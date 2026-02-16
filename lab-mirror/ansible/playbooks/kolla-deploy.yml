@@ -46,6 +46,16 @@
     ssh_private_key: "/home/ubuntu/.ssh/id_ed25519"
 
   tasks:
+    # AIRGAP: Ensure pip always goes through cloudinative proxy
+    - name: Configure global pip.conf for cloudinative proxy
+      ansible.builtin.copy:
+        content: |
+          [global]
+          index-url = {{ pip_index_url }}
+          trusted-host = npm.cloudinative.com
+        dest: /etc/pip.conf
+        mode: "0644"
+
     - name: Install system dependencies
       ansible.builtin.apt:
         name:
@@ -74,28 +84,37 @@
         virtualenv: "{{ kolla_venv }}"
         extra_args: "-i {{ pip_index_url }}"
 
-    - name: Install Ansible Galaxy requirements (kolla-ansible install-deps)
-      ansible.builtin.command:
-        cmd: "{{ kolla_venv }}/bin/kolla-ansible install-deps"
+    # Install Ansible collections — prefer offline vendor tarball, fallback to online
+    # AIRGAP: vendor/ansible-collections-2025.1.tar.gz contains all required collections
+    # pre-packaged from a working install. No internet needed if this file exists.
+    - name: Check for vendored Ansible collections (airgap/offline)
+      ansible.builtin.stat:
+        path: "{{ playbook_dir }}/../../vendor/ansible-collections-2025.1.tar.gz"
+      register: vendor_collections
+
+    - name: Install collections from vendor tarball (offline/airgap)
+      ansible.builtin.shell: |
+        mkdir -p /root/.ansible/collections/ansible_collections
+        tar xzf {{ playbook_dir }}/../../vendor/ansible-collections-2025.1.tar.gz \
+          -C /root/.ansible/collections/ansible_collections/
+      when: vendor_collections.stat.exists
       changed_when: true
 
-    # GAP FIX: Install openstack.kolla collection from opendev git
-    # The version from Galaxy may not match 2025.1; install from stable branch
-    - name: Check if openstack.kolla collection is installed
-      ansible.builtin.command:
-        cmd: "{{ kolla_venv }}/bin/ansible-galaxy collection list openstack.kolla"
-      register: kolla_collection_check
-      changed_when: false
-      failed_when: false
+    - name: Install collections online (if no vendor tarball)
+      when: not vendor_collections.stat.exists
+      block:
+        - name: Install Ansible Galaxy requirements (kolla-ansible install-deps)
+          ansible.builtin.command:
+            cmd: "{{ kolla_venv }}/bin/kolla-ansible install-deps"
+          changed_when: true
 
-    - name: Install openstack.kolla collection from opendev (stable/2025.1)
-      ansible.builtin.command:
-        cmd: >
-          {{ kolla_venv }}/bin/ansible-galaxy collection install
-          git+https://opendev.org/openstack/ansible-collection-kolla.git,stable/2025.1
-          --force
-      when: kolla_collection_check.rc != 0 or 'openstack.kolla' not in kolla_collection_check.stdout
-      changed_when: true
+        - name: Install openstack.kolla collection from opendev (stable/2025.1)
+          ansible.builtin.command:
+            cmd: >
+              {{ kolla_venv }}/bin/ansible-galaxy collection install
+              git+https://opendev.org/openstack/ansible-collection-kolla.git,stable/2025.1
+              --force
+          changed_when: true
 
     - name: Create /etc/kolla directory
       ansible.builtin.file:
@@ -274,6 +293,16 @@
         line: "{{ item }}"
         state: present
       loop: "{{ api_hosts }}"
+
+    # AIRGAP: pip on VMs must also go through cloudinative
+    - name: Configure pip.conf on VMs for cloudinative proxy
+      ansible.builtin.copy:
+        content: |
+          [global]
+          index-url = https://npm.cloudinative.com/repository/pypi-proxy/simple/
+          trusted-host = npm.cloudinative.com
+        dest: /etc/pip.conf
+        mode: "0644"
 
     - name: Ensure Docker is running
       ansible.builtin.systemd:
