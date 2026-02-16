@@ -87,16 +87,27 @@ $KOLLA deploy
 $KOLLA post-deploy
 ```
 
-## Registry Mirrors (Mandatory)
+## Registry Mirrors (Mandatory — Airgap/Offline)
 
-**All traffic must go through local Nexus proxies. No direct public access.**
+**All traffic must go through local Nexus proxies. Zero direct public internet access.**
 
-| Original | Mirror |
-|----------|--------|
-| quay.io | quay.cloudinative.com |
-| Docker Hub | docker.cloudinative.com |
-| Ubuntu APT | archive.cloudinative.com / security.cloudinative.com |
-| PyPI | npm.cloudinative.com/repository/pypi-proxy/simple/ |
+| Original | Mirror | Used By |
+|----------|--------|---------|
+| quay.io | quay.cloudinative.com | Kolla container images |
+| Docker Hub | docker.cloudinative.com | Docker daemon mirror |
+| Docker CE APT | download.cloudinative.com | Docker packages on VMs |
+| Ubuntu APT | archive.cloudinative.com / security.cloudinative.com | OS packages |
+| PyPI | npm.cloudinative.com/repository/pypi-proxy/simple/ | pip (host + VMs) |
+| Ansible Galaxy / opendev | **Vendored** in `vendor/` | Ansible collections |
+
+### Offline Assets (`vendor/`)
+| File | Purpose |
+|------|---------|
+| `ansible-collections-2025.1.tar.gz` | All required Ansible collections (pre-packaged) |
+| `requirements-kolla-venv.txt` | Pinned pip requirements for reproducibility |
+
+The playbook auto-detects the vendor tarball and uses it for offline install.
+If absent, it falls back to online install (opendev.org).
 
 ## Lessons Learned
 
