@@ -16,7 +16,7 @@ kolla_base_distro: ubuntu
 openstack_release: 2025.1
 
 # Container registry → Nexus proxy (no public internet)
-docker_registry: "quay.cloudinative.com"
+docker_registry: "quay.io"
 docker_namespace: "openstack.kolla"
 docker_registry_insecure: "no"
 

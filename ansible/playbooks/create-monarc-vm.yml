@@ -1,0 +1,434 @@
+---
+# create-monarc-vm.yml
+# Creates the "monarc" VM in admin project on production OpenStack
+# Specs: c8r8d50 (8vCPU, 8GB RAM, 50GB root), 200GB secondary disk (vdb), Ubuntu 24
+# Configures all package managers to use Nexus mirrors (*.cloudinative.com)
+#
+# Since the OpenStack API (172.30.204.x) is only reachable from server01,
+# we use delegate_to with the openstack CLI on server01.
+#
+# Usage:
+#   ansible-playbook -i ansible/inventory/hosts.yml ansible/playbooks/create-monarc-vm.yml
+
+- name: Create monarc VM on production OpenStack
+  hosts: localhost
+  gather_facts: false
+  vars:
+    os_cli: "/home/xadmin/kolla/bin/openstack"
+    os_server: "xadmin@172.40.30.21"
+    os_env:
+      OS_AUTH_URL: "http://172.30.204.21:5000/v3"
+      OS_USERNAME: "admin"
+      OS_PASSWORD: "uSmHfSL92UMI3x88L9oQEp6eb0YYt9"
+      OS_PROJECT_NAME: "admin"
+      OS_USER_DOMAIN_NAME: "default"
+      OS_PROJECT_DOMAIN_NAME: "default"
+      OS_REGION_NAME: "RegionOne"
+      OS_IDENTITY_API_VERSION: "3"
+      OS_VOLUME_API_VERSION: "3"
+
+    vm_name: monarc
+    flavor: c8r8d50
+    image: Ubuntu24
+    network: Provider  # Direct Provider port, no router/FIP
+    security_group: d16f59ba-e699-40a5-8667-d319bfc5a0c3  # admin project 'default'
+    keypair: ahmad
+    secondary_disk_size: 200
+    provider_network: Provider
+
+    ssh_keys:
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDRIysTxBvNfhCmq6SvFuBlS6IF1DYAbEsw1JqJJirwYozhkX+NOQJF6/d4o69BG6vx1EriIHQQqOOBNAgGsJOKPsJTJTNLJ+jdzXB3BgWzztd6DImvPAL/vWG7yLK0wXnx4Q33KqzShdV153kLsf07BHGAKD32uJoHOltPyxpkT+nNynnC+AUQQ4UdBjTFifgQt2TkvA4OT5pcckkT7LxwF+Zq/OnLMZLb8hO4HV5Cj/CkuGL+Q9lv16R92DoRwoBIv8An1/ORvPIPTFvw/BNqF0dWUyzywivl2O4cxKg5BobqrH0iVc/4UQp7fod12DICne0QyZqDFJpoGR0jBVB7TF0bL/ZgI24f7fulROYqw+puaL2c+NcmCBDqeFgyZtIZuSRheozqLekRQQiIOtN1m6C9PplaIas4zVR4Z2pwgRxCd7rJsxDeQNiHRDP+SeuAECLAyLEabUOzzXCs9ozX+9u50KpeBbI+Ka8bhQo14j0ZfM4i8GQtQASZN12lM7E= ars1364@gmail.com"
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCmTMGxOBAixVSEPGxFWDMjivEUxSv1GpMbMGCfOjpALfK49MnXJpGcE4dMCD+4d3+0FT3OAN9GaepJb1sxLeZ+SDYQrVDim8JTIpErIG/T+aMT/5vZqxMSvxJcSQiHaNXFjj2IzMYJb8FGCX2K5yjKJ7IDOBD/xg4W1ghgMhmAiNsE7WWAM5HBF5Rp1dN9t1bMI2r2Gnk28WzZiLfJJi5X/PWymRoS4ACXkEKXmIkBuqVWqr2xNGAr+m6HmM8CrjSS6VYQbRl4o1vHt3PcQD7Wpt4NrGs/jvfbL0bLCXJkj6TjRoK1OfKVTHxFI2WpPNJB2BxhR3aQhZr8u2QD ars1364@gmail.com"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPpKq7a7+4GULobH56gxvsBO+UFiTXczrjHOCZXOvtPL openstack-admin"
+
+  tasks:
+    - name: Build OS CLI prefix
+      set_fact:
+        os_cmd: "ssh {{ os_server }} /home/xadmin/os.sh"
+
+    # ── Check if VM already exists ───────────────────────────────────
+    - name: Check if monarc VM exists
+      shell: "{{ os_cmd }} server show {{ vm_name }} -f json 2>/dev/null"
+      register: vm_check
+      failed_when: false
+      changed_when: false
+
+    - name: Set VM exists flag
+      set_fact:
+        vm_exists: "{{ vm_check.rc == 0 }}"
+
+    # ── Create secondary volume ──────────────────────────────────────
+    - name: Check if data volume exists
+      shell: "{{ os_cmd }} volume show {{ vm_name }}-data -f json 2>/dev/null"
+      register: vol_check
+      failed_when: false
+      changed_when: false
+
+    - name: Create secondary volume (200GB)
+      shell: "{{ os_cmd }} volume create --size {{ secondary_disk_size }} --type eco {{ vm_name }}-data -f json"
+      register: vol_create
+      when: vol_check.rc != 0
+
+    - name: Wait for volume to be available
+      shell: "{{ os_cmd }} volume show {{ vm_name }}-data -c status -f value"
+      register: vol_status
+      until: vol_status.stdout | trim == 'available' or vol_status.stdout | trim == 'in-use'
+      retries: 30
+      delay: 5
+      when: vol_check.rc != 0
+
+    # ── Create VM ────────────────────────────────────────────────────
+    - name: Create monarc VM
+      shell: |
+        {{ os_cmd }} server create \
+          --image {{ image }} \
+          --flavor {{ flavor }} \
+          --network {{ network }} \
+          --security-group {{ security_group }} \
+          --key-name {{ keypair }} \
+          --wait \
+          {{ vm_name }} -f json
+      register: vm_create
+      when: not vm_exists
+
+    - name: Wait for VM to be ACTIVE
+      shell: "{{ os_cmd }} server show {{ vm_name }} -c status -f value"
+      register: vm_status
+      until: vm_status.stdout | trim == 'ACTIVE'
+      retries: 60
+      delay: 5
+
+    # ── Attach secondary volume ──────────────────────────────────────
+    - name: Check if volume is already attached
+      shell: "{{ os_cmd }} volume show {{ vm_name }}-data -c status -f value"
+      register: vol_attach_check
+      changed_when: false
+
+    - name: Attach data volume to VM as vdb
+      shell: "{{ os_cmd }} server add volume {{ vm_name }} {{ vm_name }}-data --device /dev/vdb"
+      when: vol_attach_check.stdout | trim != 'in-use'
+
+    - name: Wait for volume to be in-use
+      shell: "{{ os_cmd }} volume show {{ vm_name }}-data -c status -f value"
+      register: vol_attached
+      until: vol_attached.stdout | trim == 'in-use'
+      retries: 30
+      delay: 3
+      when: vol_attach_check.stdout | trim != 'in-use'
+
+    # ── Assign floating IP ───────────────────────────────────────────
+    - name: Check if VM already has a floating IP
+      shell: "{{ os_cmd }} server show {{ vm_name }} -c addresses -f value"
+      register: vm_addresses
+      changed_when: false
+
+    - name: Allocate and assign floating IP
+      shell: "{{ os_cmd }} floating ip create --port $({{ os_cmd }} port list --server {{ vm_name }} -c ID -f value | head -1) {{ provider_network }} -f json"
+      register: fip_result
+      when: "vm_addresses.stdout.count(',') == 0"
+
+    - name: Get floating IP address
+      shell: "{{ os_cmd }} server show {{ vm_name }} -c addresses -f value"
+      register: vm_final_addresses
+      changed_when: false
+
+    - name: Extract floating IP
+      set_fact:
+        floating_ip: "{{ vm_final_addresses.stdout | regex_search('[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+.*,\\s*([0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+)', '\\1') | first | default('') }}"
+
+    - name: Show VM details
+      debug:
+        msg: "VM {{ vm_name }} — addresses: {{ vm_final_addresses.stdout }}, floating IP: {{ floating_ip }}"
+
+    - name: Wait for SSH on floating IP
+      wait_for:
+        host: "{{ floating_ip }}"
+        port: 22
+        delay: 15
+        timeout: 300
+
+    - name: Add VM to in-memory inventory
+      add_host:
+        name: monarc
+        ansible_host: "{{ floating_ip }}"
+        ansible_user: ubuntu
+        ansible_ssh_common_args: "-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        ansible_ssh_private_key_file: "~/.ssh/id_ed25519"
+
+# ── Phase 2: Configure the VM ─────────────────────────────────────────
+- name: Configure monarc VM with Nexus mirrors
+  hosts: monarc
+  become: true
+  gather_facts: true
+  vars:
+    nexus_apt_archive: "http://archive.cloudinative.com/ubuntu"
+    nexus_apt_security: "http://security.cloudinative.com/ubuntu"
+    nexus_docker_mirror: "https://docker.cloudinative.com"
+    nexus_docker_download: "https://download.cloudinative.com"
+    nexus_npm_registry: "https://npm.cloudinative.com/repository/npm-proxy/"
+    nexus_go_proxy: "https://go.cloudinative.com/repository/go-proxy/"
+    nexus_pypi: "https://npm.cloudinative.com/repository/pypi-proxy/simple/"
+
+    ssh_keys:
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDRIysTxBvNfhCmq6SvFuBlS6IF1DYAbEsw1JqJJirwYozhkX+NOQJF6/d4o69BG6vx1EriIHQQqOOBNAgGsJOKPsJTJTNLJ+jdzXB3BgWzztd6DImvPAL/vWG7yLK0wXnx4Q33KqzShdV153kLsf07BHGAKD32uJoHOltPyxpkT+nNynnC+AUQQ4UdBjTFifgQt2TkvA4OT5pcckkT7LxwF+Zq/OnLMZLb8hO4HV5Cj/CkuGL+Q9lv16R92DoRwoBIv8An1/ORvPIPTFvw/BNqF0dWUyzywivl2O4cxKg5BobqrH0iVc/4UQp7fod12DICne0QyZqDFJpoGR0jBVB7TF0bL/ZgI24f7fulROYqw+puaL2c+NcmCBDqeFgyZtIZuSRheozqLekRQQiIOtN1m6C9PplaIas4zVR4Z2pwgRxCd7rJsxDeQNiHRDP+SeuAECLAyLEabUOzzXCs9ozX+9u50KpeBbI+Ka8bhQo14j0ZfM4i8GQtQASZN12lM7E= ars1364@gmail.com"
+      - "ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQCmTMGxOBAixVSEPGxFWDMjivEUxSv1GpMbMGCfOjpALfK49MnXJpGcE4dMCD+4d3+0FT3OAN9GaepJb1sxLeZ+SDYQrVDim8JTIpErIG/T+aMT/5vZqxMSvxJcSQiHaNXFjj2IzMYJb8FGCX2K5yjKJ7IDOBD/xg4W1ghgMhmAiNsE7WWAM5HBF5Rp1dN9t1bMI2r2Gnk28WzZiLfJJi5X/PWymRoS4ACXkEKXmIkBuqVWqr2xNGAr+m6HmM8CrjSS6VYQbRl4o1vHt3PcQD7Wpt4NrGs/jvfbL0bLCXJkj6TjRoK1OfKVTHxFI2WpPNJB2BxhR3aQhZr8u2QD ars1364@gmail.com"
+      - "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIPpKq7a7+4GULobH56gxvsBO+UFiTXczrjHOCZXOvtPL openstack-admin"
+
+  tasks:
+    # ── Ensure SSH keys ──────────────────────────────────────────────
+    - name: Ensure all SSH keys in authorized_keys
+      authorized_key:
+        user: ubuntu
+        key: "{{ item }}"
+        state: present
+      loop: "{{ ssh_keys }}"
+
+    # ── APT mirrors ──────────────────────────────────────────────────
+    - name: Configure APT to use Nexus mirrors
+      copy:
+        dest: /etc/apt/sources.list.d/ubuntu.sources
+        content: |
+          Types: deb
+          URIs: {{ nexus_apt_archive }}
+          Suites: noble noble-updates noble-backports
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+
+          Types: deb
+          URIs: {{ nexus_apt_security }}
+          Suites: noble-security
+          Components: main restricted universe multiverse
+          Signed-By: /usr/share/keyrings/ubuntu-archive-keyring.gpg
+        mode: '0644'
+      register: apt_sources
+
+    - name: Remove default sources.list
+      file:
+        path: /etc/apt/sources.list
+        state: absent
+
+    - name: Remove other APT sources
+      shell: |
+        for f in /etc/apt/sources.list.d/*; do
+          case "$f" in
+            */ubuntu.sources) continue ;;
+            */docker.list) continue ;;
+          esac
+          rm -f "$f"
+        done
+      changed_when: false
+
+    - name: Update apt cache
+      apt:
+        update_cache: true
+      when: apt_sources.changed
+
+    # ── Install base packages ────────────────────────────────────────
+    - name: Install essential packages
+      apt:
+        name:
+          - curl
+          - wget
+          - git
+          - jq
+          - htop
+          - tmux
+          - unzip
+          - ca-certificates
+          - gnupg
+          - apt-transport-https
+          - software-properties-common
+          - python3-pip
+          - python3-venv
+          - build-essential
+          - xfsprogs
+        state: present
+        update_cache: true
+
+    # ── Docker ───────────────────────────────────────────────────────
+    - name: Create keyrings directory
+      file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
+
+    - name: Add Docker GPG key
+      get_url:
+        url: "https://download.docker.com/linux/ubuntu/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        mode: '0644'
+
+    - name: Add Docker APT repo via Nexus mirror
+      copy:
+        dest: /etc/apt/sources.list.d/docker.list
+        content: "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] {{ nexus_docker_download }}/linux/ubuntu noble stable\n"
+        mode: '0644'
+
+    - name: Install Docker
+      apt:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-buildx-plugin
+          - docker-compose-plugin
+        state: present
+        update_cache: true
+
+    - name: Configure Docker daemon with Nexus mirror
+      copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "registry-mirrors": ["{{ nexus_docker_mirror }}"],
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "10m",
+              "max-file": "3"
+            }
+          }
+        mode: '0644'
+      notify: Restart docker
+
+    - name: Add ubuntu user to docker group
+      user:
+        name: ubuntu
+        groups: docker
+        append: true
+
+    - name: Enable and start Docker
+      systemd:
+        name: docker
+        enabled: true
+        state: started
+
+    # ── Node.js 22 via NodeSource ────────────────────────────────────
+    - name: Check if Node.js is installed
+      command: node --version
+      register: node_check
+      failed_when: false
+      changed_when: false
+
+    - name: Install Node.js 22.x
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+        apt-get install -y nodejs
+      when: node_check.rc != 0
+
+    - name: Configure NPM to use Nexus mirror (global)
+      copy:
+        dest: /etc/npmrc
+        content: |
+          registry={{ nexus_npm_registry }}
+          strict-ssl=false
+        mode: '0644'
+
+    - name: Configure NPM for ubuntu user
+      copy:
+        dest: /home/ubuntu/.npmrc
+        content: |
+          registry={{ nexus_npm_registry }}
+          strict-ssl=false
+        owner: ubuntu
+        group: ubuntu
+        mode: '0644'
+
+    # ── Golang 1.23 ─────────────────────────────────────────────────
+    - name: Install Go 1.23
+      apt:
+        name: golang-1.23-go
+        state: present
+
+    - name: Symlink Go binaries
+      file:
+        src: "/usr/lib/go-1.23/bin/{{ item }}"
+        dest: "/usr/local/bin/{{ item }}"
+        state: link
+        force: true
+      loop: [go, gofmt]
+
+    - name: Configure Go proxy via Nexus (system-wide)
+      copy:
+        dest: /etc/profile.d/go-env.sh
+        content: |
+          export GOPATH=$HOME/go
+          export PATH=$GOPATH/bin:$PATH
+          export GOPROXY={{ nexus_go_proxy }},direct
+          export GONOSUMDB=*
+        mode: '0644'
+
+    # ── pip / PyPI ───────────────────────────────────────────────────
+    - name: Configure pip to use Nexus PyPI mirror
+      copy:
+        dest: /etc/pip.conf
+        content: |
+          [global]
+          index-url = {{ nexus_pypi }}
+          trusted-host = npm.cloudinative.com
+        mode: '0644'
+
+    # ── Format and mount secondary disk ──────────────────────────────
+    - name: Check if vdb has a filesystem
+      command: blkid /dev/vdb
+      register: vdb_blkid
+      failed_when: false
+      changed_when: false
+
+    - name: Create ext4 filesystem on vdb
+      filesystem:
+        fstype: ext4
+        dev: /dev/vdb
+      when: vdb_blkid.rc != 0
+
+    - name: Create /data mount point
+      file:
+        path: /data
+        state: directory
+        mode: '0755'
+
+    - name: Mount vdb at /data
+      mount:
+        path: /data
+        src: /dev/vdb
+        fstype: ext4
+        opts: defaults,nofail
+        state: mounted
+
+    - name: Set ownership of /data
+      file:
+        path: /data
+        owner: ubuntu
+        group: ubuntu
+        state: directory
+
+    # ── Summary ──────────────────────────────────────────────────────
+    - name: Verify configuration
+      shell: |
+        echo "=== APT ==="
+        grep -r "cloudinative" /etc/apt/sources.list.d/ 2>/dev/null | head -3
+        echo "=== Docker ==="
+        docker --version 2>/dev/null
+        cat /etc/docker/daemon.json 2>/dev/null | grep registry
+        echo "=== Node.js ==="
+        node --version 2>/dev/null
+        npm config get registry 2>/dev/null
+        echo "=== Go ==="
+        /usr/local/bin/go version 2>/dev/null
+        echo "=== pip ==="
+        cat /etc/pip.conf 2>/dev/null
+        echo "=== Disk ==="
+        df -h /data 2>/dev/null
+        echo "=== SSH keys ==="
+        wc -l /home/ubuntu/.ssh/authorized_keys
+      register: verify
+      changed_when: false
+
+    - name: Show verification
+      debug:
+        var: verify.stdout_lines
+
+  handlers:
+    - name: Restart docker
+      systemd:
+        name: docker
+        state: restarted

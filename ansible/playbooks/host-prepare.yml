@@ -110,15 +110,10 @@
       changed_when: pool_define.rc == 0
 
     - name: Start and autostart libvirt storage pools
-      command: "virsh {{ action }} {{ item.pool }}"
-      loop: "{{ disks }}"
+      command: "virsh {{ item.1 }} {{ item.0.pool }}"
+      loop: "{{ disks | product(['pool-start', 'pool-autostart']) | list }}"
       loop_control:
-        label: "{{ action }} {{ item.pool }}"
-      vars:
-        action: "{{ outer_item }}"
-      with_items:
-        - pool-start
-        - pool-autostart
+        label: "{{ item.1 }} {{ item.0.pool }}"
       ignore_errors: true
 
     - name: Add user to libvirt group

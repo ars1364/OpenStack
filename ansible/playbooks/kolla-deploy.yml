@@ -74,15 +74,11 @@
         cmd: python3 -m venv {{ kolla_venv }}
         creates: "{{ kolla_venv }}/bin/activate"
 
-    - name: Install pip packages in venv
+    - name: Install pip packages from pinned requirements
       ansible.builtin.pip:
-        name:
-          - pip>=24.0
-          - kolla-ansible==20.1.0
-          - ansible-core>=2.17,<2.19
-          - docker
+        requirements: "{{ playbook_dir }}/../../vendor/requirements-kolla-venv.txt"
         virtualenv: "{{ kolla_venv }}"
-        extra_args: "-i {{ pip_index_url }}"
+        extra_args: "-i https://pypi.org/simple/"
 
     # Install Ansible collections — prefer offline vendor tarball, fallback to online
     # AIRGAP: vendor/ansible-collections-2025.1.tar.gz contains all required collections
@@ -151,11 +147,26 @@
         path: "{{ kolla_config_dir }}/passwords.yml"
       register: passwords_file
 
+    - name: Copy passwords template from kolla-ansible
+      ansible.builtin.copy:
+        src: "{{ kolla_venv }}/share/kolla-ansible/etc_examples/kolla/passwords.yml"
+        dest: "{{ kolla_config_dir }}/passwords.yml"
+        mode: "0600"
+        remote_src: true
+      when: not passwords_file.stat.exists
+
     - name: Generate passwords
       ansible.builtin.command:
         cmd: "{{ kolla_venv }}/bin/kolla-genpwd"
       when: not passwords_file.stat.exists
       changed_when: true
+
+    - name: Set keystone admin password
+      ansible.builtin.lineinfile:
+        path: "{{ kolla_config_dir }}/passwords.yml"
+        regexp: "^keystone_admin_password:"
+        line: "keystone_admin_password: GZgZcyoF5hs9TfsX1KGIHvx2pPR9FeFtCgHslPeX"
+      when: not passwords_file.stat.exists
 
     # GAP FIX: Create ansible.cfg with proper paths and settings
     - name: Create ansible.cfg for kolla
@@ -419,7 +430,8 @@
   vars:
     kolla_venv: "/opt/kolla-venv"
     kolla_config_dir: "/etc/kolla"
-    kolla_cmd: "{{ kolla_venv }}/bin/kolla-ansible -i {{ kolla_config_dir }}/multinode"
+    kolla_cmd: "{{ kolla_venv }}/bin/kolla-ansible"
+    kolla_inv: "-i {{ kolla_config_dir }}/multinode"
     kolla_env:
       ANSIBLE_CONFIG: "{{ kolla_config_dir }}/ansible.cfg"
       VIRTUAL_ENV: "{{ kolla_venv }}"
@@ -430,7 +442,7 @@
     # --- Bootstrap ---
     - name: Run kolla-ansible bootstrap-servers
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} bootstrap-servers"
+        cmd: "{{ kolla_cmd }} bootstrap-servers {{ kolla_inv }}"
       environment: "{{ kolla_env }}"
       changed_when: true
       register: bootstrap_result
@@ -503,7 +515,8 @@
   vars:
     kolla_venv: "/opt/kolla-venv"
     kolla_config_dir: "/etc/kolla"
-    kolla_cmd: "{{ kolla_venv }}/bin/kolla-ansible -i {{ kolla_config_dir }}/multinode"
+    kolla_cmd: "{{ kolla_venv }}/bin/kolla-ansible"
+    kolla_inv: "-i {{ kolla_config_dir }}/multinode"
     kolla_env:
       ANSIBLE_CONFIG: "{{ kolla_config_dir }}/ansible.cfg"
       VIRTUAL_ENV: "{{ kolla_venv }}"
@@ -515,14 +528,14 @@
     # LESSON: Generate certs BEFORE prechecks — required even if Octavia not actively used
     - name: Generate Octavia certificates
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} octavia-certificates"
+        cmd: "{{ kolla_cmd }} octavia-certificates {{ kolla_inv }}"
       environment: "{{ kolla_env }}"
       changed_when: true
 
     # --- Prechecks ---
     - name: Run kolla-ansible prechecks
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} prechecks"
+        cmd: "{{ kolla_cmd }} prechecks {{ kolla_inv }}"
       environment: "{{ kolla_env }}"
       changed_when: true
       register: prechecks_result
@@ -536,7 +549,7 @@
     # from deployment logic. Nexus returns 503 under concurrent heavy load.
     - name: Pull all container images (before deploy)
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} pull"
+        cmd: "{{ kolla_cmd }} pull {{ kolla_inv }}"
       environment: "{{ kolla_env }}"
       changed_when: true
       register: pull_result
@@ -550,7 +563,7 @@
     # Deploy MariaDB separately and wait for it to stabilize before full deploy.
     - name: Deploy MariaDB first (Galera bootstrap needs time)
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} deploy --tags mariadb"
+        cmd: "{{ kolla_cmd }} deploy {{ kolla_inv }} -t mariadb"
       environment: "{{ kolla_env }}"
       changed_when: true
       register: mariadb_result
@@ -563,7 +576,7 @@
     # --- Deploy Everything ---
     - name: Deploy all OpenStack services
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} deploy"
+        cmd: "{{ kolla_cmd }} deploy {{ kolla_inv }}"
       environment: "{{ kolla_env }}"
       changed_when: true
       register: deploy_result
@@ -575,7 +588,7 @@
     # --- Post-Deploy ---
     - name: Run kolla-ansible post-deploy
       ansible.builtin.command:
-        cmd: "{{ kolla_cmd }} post-deploy"
+        cmd: "{{ kolla_cmd }} post-deploy {{ kolla_inv }}"
       environment: "{{ kolla_env }}"
       changed_when: true
 
