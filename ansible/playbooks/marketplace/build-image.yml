@@ -1,0 +1,357 @@
+---
+# Marketplace Image Builder
+#
+# Builds a pre-configured qcow2 image using qemu-nbd + chroot.
+# Designed for airgap/sanctions-restricted environments with cloudinative mirrors.
+#
+# Usage:
+#   ansible-playbook marketplace/build-image.yml \
+#     -e build_host=localhost \
+#     -e image_name=docker-ce
+#
+# Prerequisites on build host:
+#   - qemu-utils (qemu-img, qemu-nbd)
+#   - e2fsprogs (e2fsck, resize2fs)
+#   - cloud-guest-utils (growpart)
+#   - gdisk (sgdisk)
+#   - curl, wget or aria2c
+
+- name: Build marketplace image
+  hosts: "{{ build_host | default('localhost') }}"
+  become: true
+  vars:
+    # Base image
+    base_image_url: "https://cloud-images.ubuntu.com/noble/current/noble-server-cloudimg-amd64.img"
+    base_image_name: "ubuntu-24.04-base.img"
+
+    # Build config
+    image_name: "docker-ce"  # override with -e
+    work_dir: "/tmp/marketplace-build"
+    nbd_device: "/dev/nbd0"
+    mount_point: "/mnt/marketplace-img"
+    virtual_size: "10G"
+
+    # Mirror config (for airgap environments)
+    apt_mirror: "https://archive.cloudinative.com/ubuntu"
+    apt_security_mirror: "https://security.cloudinative.com/ubuntu"
+    docker_registry_mirror: "https://docker.cloudinative.com"
+    docker_apt_repo: "https://download.docker.com/linux/ubuntu"
+    dns_servers:
+      - "8.8.8.8"
+      - "1.1.1.1"
+
+    # Output
+    output_dir: "/tmp/marketplace-output"
+    compress_output: true
+
+    # Image definitions
+    image_definitions:
+      docker-ce:
+        display_name: "Ubuntu 24.04 - Docker CE"
+        description: >-
+          Ubuntu 24.04 with Docker CE pre-installed.
+          Includes docker-compose, buildx, containerd.
+          APT configured with cloudinative mirrors.
+          Docker registry mirror pre-configured.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 1024
+        marketplace_category: container-runtime
+        customize_script: "customize-docker-ce.sh"
+        cloud_init_configs:
+          - src: "cloud-init-docker.cfg"
+            dest: "99-docker.cfg"
+
+  tasks:
+    - name: Validate image_name
+      ansible.builtin.assert:
+        that:
+          - image_name in image_definitions
+        fail_msg: "Unknown image '{{ image_name }}'. Available: {{ image_definitions.keys() | list }}"
+
+    - name: Set image config
+      ansible.builtin.set_fact:
+        img: "{{ image_definitions[image_name] }}"
+
+    - name: Install build dependencies
+      ansible.builtin.apt:
+        name:
+          - qemu-utils
+          - e2fsprogs
+          - cloud-guest-utils
+          - gdisk
+          - curl
+          - aria2
+        state: present
+        update_cache: true
+
+    - name: Load nbd kernel module
+      community.general.modprobe:
+        name: nbd
+        params: "max_part=8"
+        state: present
+
+    - name: Create work directories
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0755"
+      loop:
+        - "{{ work_dir }}"
+        - "{{ mount_point }}"
+        - "{{ output_dir }}"
+
+    # --- Download base image ---
+    - name: Check if base image exists
+      ansible.builtin.stat:
+        path: "{{ work_dir }}/{{ base_image_name }}"
+      register: base_img
+
+    - name: Download base image
+      ansible.builtin.command:
+        cmd: >-
+          aria2c --max-connection-per-server=4 --split=4
+          --min-split-size=5M --continue=true
+          -d {{ work_dir }} -o {{ base_image_name }}
+          {{ base_image_url }}
+      when: not base_img.stat.exists
+      changed_when: true
+
+    # --- Prepare working copy ---
+    - name: Copy base image to working copy
+      ansible.builtin.copy:
+        src: "{{ work_dir }}/{{ base_image_name }}"
+        dest: "{{ work_dir }}/{{ image_name }}.qcow2"
+        remote_src: true
+        force: true
+
+    - name: Resize image to {{ virtual_size }}
+      ansible.builtin.command:
+        cmd: "qemu-img resize {{ work_dir }}/{{ image_name }}.qcow2 {{ virtual_size }}"
+      changed_when: true
+
+    # --- Connect NBD and grow partition ---
+    - name: Disconnect any existing NBD
+      ansible.builtin.command:
+        cmd: "qemu-nbd --disconnect {{ nbd_device }}"
+      changed_when: false
+      failed_when: false
+
+    - name: Wait for NBD disconnect
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: Connect image via NBD
+      ansible.builtin.command:
+        cmd: "qemu-nbd --connect={{ nbd_device }} {{ work_dir }}/{{ image_name }}.qcow2"
+      changed_when: true
+
+    - name: Wait for NBD device
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: Fix GPT backup header
+      ansible.builtin.command:
+        cmd: "sgdisk -e {{ nbd_device }}"
+      changed_when: true
+
+    - name: Grow root partition
+      ansible.builtin.command:
+        cmd: "growpart {{ nbd_device }} 1"
+      changed_when: true
+
+    - name: Check filesystem
+      ansible.builtin.command:
+        cmd: "e2fsck -f -y {{ nbd_device }}p1"
+      changed_when: true
+      failed_when: false  # e2fsck returns 1 if it fixed things
+
+    - name: Resize filesystem
+      ansible.builtin.command:
+        cmd: "resize2fs {{ nbd_device }}p1"
+      changed_when: true
+
+    # --- Mount and set up chroot ---
+    - name: Mount root partition
+      ansible.posix.mount:
+        src: "{{ nbd_device }}p1"
+        path: "{{ mount_point }}"
+        fstype: ext4
+        state: mounted
+
+    - name: Bind-mount /dev
+      ansible.posix.mount:
+        src: /dev
+        path: "{{ mount_point }}/dev"
+        opts: bind
+        fstype: none
+        state: mounted
+
+    - name: Bind-mount /dev/pts
+      ansible.posix.mount:
+        src: /dev/pts
+        path: "{{ mount_point }}/dev/pts"
+        opts: bind
+        fstype: none
+        state: mounted
+
+    - name: Mount /proc
+      ansible.posix.mount:
+        src: proc
+        path: "{{ mount_point }}/proc"
+        fstype: proc
+        state: mounted
+
+    - name: Mount /sys
+      ansible.posix.mount:
+        src: sysfs
+        path: "{{ mount_point }}/sys"
+        fstype: sysfs
+        state: mounted
+
+    - name: Configure DNS in chroot
+      ansible.builtin.copy:
+        content: |
+          {% for dns in dns_servers %}
+          nameserver {{ dns }}
+          {% endfor %}
+        dest: "{{ mount_point }}/etc/resolv.conf"
+        mode: "0644"
+        # Force overwrite — cloud images have a dangling symlink here
+        follow: false
+        force: true
+
+    - name: Remove dangling resolv.conf symlink first
+      ansible.builtin.file:
+        path: "{{ mount_point }}/etc/resolv.conf"
+        state: absent
+
+    - name: Write resolv.conf
+      ansible.builtin.copy:
+        content: |
+          {% for dns in dns_servers %}
+          nameserver {{ dns }}
+          {% endfor %}
+        dest: "{{ mount_point }}/etc/resolv.conf"
+        mode: "0644"
+
+    # --- Configure APT mirrors ---
+    - name: Configure APT sources (DEB822 format)
+      ansible.builtin.template:
+        src: templates/ubuntu-sources.j2
+        dest: "{{ mount_point }}/etc/apt/sources.list.d/ubuntu.sources"
+        mode: "0644"
+
+    - name: Remove legacy sources.list
+      ansible.builtin.file:
+        path: "{{ mount_point }}/etc/apt/sources.list"
+        state: absent
+
+    # --- Run customization script ---
+    - name: Copy customization script
+      ansible.builtin.template:
+        src: "files/{{ img.customize_script }}"
+        dest: "{{ mount_point }}/tmp/customize.sh"
+        mode: "0755"
+
+    - name: Run customization in chroot
+      ansible.builtin.command:
+        cmd: "chroot {{ mount_point }} /bin/bash /tmp/customize.sh"
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      changed_when: true
+      register: customize_result
+
+    - name: Show customization output
+      ansible.builtin.debug:
+        msg: "{{ customize_result.stdout_lines[-10:] }}"
+
+    # --- Cloud-init configs ---
+    - name: Deploy cloud-init configs
+      ansible.builtin.copy:
+        src: "files/{{ item.src }}"
+        dest: "{{ mount_point }}/etc/cloud/cloud.cfg.d/{{ item.dest }}"
+        mode: "0644"
+      loop: "{{ img.cloud_init_configs }}"
+
+    # --- Finalize image ---
+    - name: Restore resolv.conf symlink
+      ansible.builtin.file:
+        path: "{{ mount_point }}/etc/resolv.conf"
+        state: absent
+
+    - name: Create resolv.conf symlink
+      ansible.builtin.file:
+        src: /run/systemd/resolve/stub-resolv.conf
+        dest: "{{ mount_point }}/etc/resolv.conf"
+        state: link
+
+    - name: Write image marker
+      ansible.builtin.copy:
+        content: "{{ img.display_name }} (airgap-ready) - built {{ ansible_date_time.iso8601 }}\n"
+        dest: "{{ mount_point }}/etc/marketplace-image-info"
+        mode: "0644"
+
+    - name: Truncate machine-id
+      ansible.builtin.command:
+        cmd: "truncate -s 0 {{ mount_point }}/etc/machine-id"
+      changed_when: true
+
+    - name: Remove dbus machine-id
+      ansible.builtin.file:
+        path: "{{ mount_point }}/var/lib/dbus/machine-id"
+        state: absent
+
+    - name: Clean apt cache in chroot
+      ansible.builtin.command:
+        cmd: "chroot {{ mount_point }} /bin/bash -c 'apt-get clean && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*'"
+      changed_when: true
+
+    # --- Unmount and compact ---
+    - name: Unmount chroot filesystems
+      ansible.posix.mount:
+        path: "{{ item }}"
+        state: unmounted
+      loop:
+        - "{{ mount_point }}/dev/pts"
+        - "{{ mount_point }}/dev"
+        - "{{ mount_point }}/proc"
+        - "{{ mount_point }}/sys"
+        - "{{ mount_point }}"
+
+    - name: Disconnect NBD
+      ansible.builtin.command:
+        cmd: "qemu-nbd --disconnect {{ nbd_device }}"
+      changed_when: true
+
+    - name: Wait for NBD disconnect
+      ansible.builtin.pause:
+        seconds: 2
+
+    - name: Compact image
+      ansible.builtin.command:
+        cmd: >-
+          qemu-img convert -O qcow2
+          {% if compress_output %}-c{% endif %}
+          {{ work_dir }}/{{ image_name }}.qcow2
+          {{ output_dir }}/{{ image_name }}.qcow2
+      changed_when: true
+
+    - name: Get output image info
+      ansible.builtin.command:
+        cmd: "qemu-img info {{ output_dir }}/{{ image_name }}.qcow2"
+      register: image_info
+      changed_when: false
+
+    - name: Show image info
+      ansible.builtin.debug:
+        msg: "{{ image_info.stdout_lines }}"
+
+    - name: Build complete
+      ansible.builtin.debug:
+        msg: >-
+          ✅ Image built: {{ output_dir }}/{{ image_name }}.qcow2
+          Upload with: ansible-playbook marketplace/upload-to-glance.yml
+          -e image_name={{ image_name }}
+          -e image_file={{ output_dir }}/{{ image_name }}.qcow2

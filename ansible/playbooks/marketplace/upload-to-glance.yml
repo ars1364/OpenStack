@@ -1,0 +1,105 @@
+---
+# Upload a marketplace image to OpenStack Glance
+#
+# Usage:
+#   ansible-playbook marketplace/upload-to-glance.yml \
+#     -e image_name=docker-ce \
+#     -e image_file=/tmp/marketplace-output/docker-ce.qcow2 \
+#     -e openstack_controller=server01
+#
+# Requires: openstack CLI on the controller, admin credentials
+
+- name: Upload marketplace image to Glance
+  hosts: "{{ openstack_controller | default('server01') }}"
+  vars:
+    image_name: "docker-ce"
+    image_file: "/tmp/marketplace-output/docker-ce.qcow2"
+    openstack_cli: "/home/xadmin/os.sh"
+    delete_old: true
+
+    image_definitions:
+      docker-ce:
+        display_name: "Ubuntu 24.04 - Docker CE"
+        description: >-
+          Ubuntu 24.04 with Docker CE 29.2.1 pre-installed.
+          Includes docker-compose, buildx, containerd.
+          APT mirrors: cloudinative.com. Docker registry mirror pre-configured.
+          Default user auto-added to docker group.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 1024
+        marketplace_category: container-runtime
+
+  tasks:
+    - name: Set image config
+      ansible.builtin.set_fact:
+        img: "{{ image_definitions[image_name] }}"
+
+    - name: Transfer image to controller
+      ansible.builtin.copy:
+        src: "{{ image_file }}"
+        dest: "/tmp/marketplace-{{ image_name }}.qcow2"
+        mode: "0644"
+
+    - name: Check for existing image
+      ansible.builtin.shell: |
+        {{ openstack_cli }} image list -f json | \
+        python3 -c "import json,sys; imgs=json.load(sys.stdin); \
+        [print(i['ID']) for i in imgs if i['Name']=='{{ img.display_name }}']"
+      register: existing_image
+      changed_when: false
+
+    - name: Delete old image
+      ansible.builtin.command:
+        cmd: "{{ openstack_cli }} image delete {{ existing_image.stdout | trim }}"
+      when:
+        - delete_old
+        - existing_image.stdout | trim | length > 0
+      changed_when: true
+
+    - name: Upload image to Glance
+      ansible.builtin.command:
+        cmd: >-
+          {{ openstack_cli }} image create
+          --file /tmp/marketplace-{{ image_name }}.qcow2
+          --disk-format qcow2
+          --container-format bare
+          --min-disk {{ img.min_disk }}
+          --min-ram {{ img.min_ram }}
+          --property hw_disk_bus=virtio
+          --property hw_vif_model=virtio
+          --property os_type=linux
+          --property os_distro={{ img.os_distro }}
+          --property os_version={{ img.os_version }}
+          --property description="{{ img.description }}"
+          --property marketplace_category={{ img.marketplace_category }}
+          --public
+          "{{ img.display_name }}"
+      register: upload_result
+      changed_when: true
+
+    - name: Show upload result
+      ansible.builtin.debug:
+        msg: "{{ upload_result.stdout_lines }}"
+
+    - name: Clean up temp file
+      ansible.builtin.file:
+        path: "/tmp/marketplace-{{ image_name }}.qcow2"
+        state: absent
+
+    - name: Verify image in Glance
+      ansible.builtin.shell: |
+        {{ openstack_cli }} image show \
+        "$({{ openstack_cli }} image list -f json | \
+        python3 -c "import json,sys; imgs=json.load(sys.stdin); \
+        [print(i['ID']) for i in imgs if i['Name']=='{{ img.display_name }}']" | head -1)" \
+        -f json
+      register: verify_result
+      changed_when: false
+
+    - name: Image uploaded
+      ansible.builtin.debug:
+        msg: |
+          ✅ Image '{{ img.display_name }}' uploaded to Glance
+          {{ verify_result.stdout | from_json | json_query('id') | default('') }}
