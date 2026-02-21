@@ -62,6 +62,34 @@
         cloud_init_configs:
           - src: "cloud-init-docker.cfg"
             dest: "99-docker.cfg"
+        tags:
+          - marketplace
+          - docker
+          - ubuntu-24.04
+          - airgap-ready
+
+      kubernetes:
+        display_name: "Ubuntu 24.04 - Kubernetes"
+        description: >-
+          Ubuntu 24.04 with Kubernetes v1.32 (kubeadm, kubelet, kubectl),
+          containerd runtime. Pre-pulled K8s core images for instant cluster init.
+          Containerd registry mirrors: cloudinative.com. Sysctl tuned.
+          Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 2048
+        marketplace_category: kubernetes
+        customize_script: "customize-kubernetes.sh"
+        cloud_init_configs:
+          - src: "cloud-init-kubernetes.cfg"
+            dest: "99-kubernetes.cfg"
+        tags:
+          - marketplace
+          - kubernetes
+          - ubuntu-24.04
+          - airgap-ready
+          - k8s
 
   tasks:
     - name: Validate image_name

@@ -30,8 +30,37 @@
         min_disk: 10
         min_ram: 1024
         marketplace_category: container-runtime
+        tags:
+          - marketplace
+          - docker
+          - ubuntu-24.04
+          - airgap-ready
+
+      kubernetes:
+        display_name: "Ubuntu 24.04 - Kubernetes"
+        description: >-
+          Ubuntu 24.04 with Kubernetes v1.32 (kubeadm, kubelet, kubectl),
+          containerd runtime. Pre-pulled K8s core images for instant cluster init.
+          Containerd registry mirrors: cloudinative.com. Sysctl tuned. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 2048
+        marketplace_category: kubernetes
+        tags:
+          - marketplace
+          - kubernetes
+          - ubuntu-24.04
+          - airgap-ready
+          - k8s
 
   tasks:
+    - name: Validate image_name
+      ansible.builtin.assert:
+        that:
+          - image_name in image_definitions
+        fail_msg: "Unknown image '{{ image_name }}'. Available: {{ image_definitions.keys() | list }}"
+
     - name: Set image config
       ansible.builtin.set_fact:
         img: "{{ image_definitions[image_name] }}"
@@ -79,9 +108,20 @@
       register: upload_result
       changed_when: true
 
-    - name: Show upload result
-      ansible.builtin.debug:
-        msg: "{{ upload_result.stdout_lines }}"
+    - name: Get new image ID
+      ansible.builtin.shell: |
+        {{ openstack_cli }} image list -f json | \
+        python3 -c "import json,sys; imgs=json.load(sys.stdin); \
+        [print(i['ID']) for i in imgs if i['Name']=='{{ img.display_name }}']" | head -1
+      register: new_image_id
+      changed_when: false
+
+    - name: Apply tags
+      ansible.builtin.command:
+        cmd: "{{ openstack_cli }} image set --tag {{ item }} {{ new_image_id.stdout | trim }}"
+      loop: "{{ img.tags | default([]) }}"
+      when: img.tags is defined
+      changed_when: true
 
     - name: Clean up temp file
       ansible.builtin.file:
@@ -90,11 +130,7 @@
 
     - name: Verify image in Glance
       ansible.builtin.shell: |
-        {{ openstack_cli }} image show \
-        "$({{ openstack_cli }} image list -f json | \
-        python3 -c "import json,sys; imgs=json.load(sys.stdin); \
-        [print(i['ID']) for i in imgs if i['Name']=='{{ img.display_name }}']" | head -1)" \
-        -f json
+        {{ openstack_cli }} image show "{{ new_image_id.stdout | trim }}" -f json
       register: verify_result
       changed_when: false
 
@@ -102,4 +138,5 @@
       ansible.builtin.debug:
         msg: |
           ✅ Image '{{ img.display_name }}' uploaded to Glance
-          {{ verify_result.stdout | from_json | json_query('id') | default('') }}
+          ID: {{ new_image_id.stdout | trim }}
+          Tags: {{ img.tags | default([]) | join(', ') }}

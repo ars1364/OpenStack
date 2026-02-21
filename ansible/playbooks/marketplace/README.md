@@ -84,7 +84,21 @@ Images use cloud-init for first-boot customization:
 
 | Image | Base | Software | Size |
 |-------|------|----------|------|
-| Ubuntu 24.04 - Docker CE | noble cloud image | Docker 29.2.1, Compose 5.0.2, Buildx 0.31.1 | ~900MB |
+| Ubuntu 24.04 - Docker CE | noble cloud image | Docker 29.2.1, Compose, Buildx, containerd | ~900MB |
+| Ubuntu 24.04 - Kubernetes | noble cloud image | kubeadm/kubelet/kubectl v1.32, containerd, pre-pulled K8s images | ~3.1GB |
+
+### Kubernetes Image Details
+
+- **containerd** with SystemdCgroup enabled
+- **Registry mirrors** pre-configured in `/etc/containerd/certs.d/` for all major registries
+- **Pre-pulled images**: kube-apiserver, kube-controller-manager, kube-scheduler, kube-proxy, etcd, coredns, pause
+- **Sysctl tuned**: bridge-nf-call-iptables, ip_forward, br_netfilter
+- **Swap disabled**, kubelet enabled
+- Ready for `kubeadm init` without internet access
+
+> **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
+> `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,
+> but for additional images use: `sudo ctr -n k8s.io images pull --hosts-dir /etc/containerd/certs.d <image>`
 
 ## Usage
 
