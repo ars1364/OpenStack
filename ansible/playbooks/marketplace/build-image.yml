@@ -91,6 +91,30 @@
           - airgap-ready
           - k8s
 
+      lamp:
+        display_name: "Ubuntu 24.04 - LAMP Stack"
+        description: >-
+          Ubuntu 24.04 with Apache 2.4, MariaDB 10.11, PHP 8.3 (LAMP).
+          Includes Composer, Certbot. PHP tuned (64M upload, 256M memory).
+          Apache modules: rewrite, ssl, headers, expires.
+          APT mirrors: cloudinative.com. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 1024
+        marketplace_category: web-stack
+        customize_script: "customize-lamp.sh"
+        cloud_init_configs:
+          - src: "cloud-init-lamp.cfg"
+            dest: "99-lamp.cfg"
+        tags:
+          - marketplace
+          - lamp
+          - ubuntu-24.04
+          - airgap-ready
+          - web
+          - php
+
   tasks:
     - name: Validate image_name
       ansible.builtin.assert:

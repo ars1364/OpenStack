@@ -86,6 +86,7 @@ Images use cloud-init for first-boot customization:
 |-------|------|----------|------|
 | Ubuntu 24.04 - Docker CE | noble cloud image | Docker 29.2.1, Compose, Buildx, containerd | ~900MB |
 | Ubuntu 24.04 - Kubernetes | noble cloud image | kubeadm/kubelet/kubectl v1.32, containerd, pre-pulled K8s images | ~3.1GB |
+| Ubuntu 24.04 - LAMP Stack | noble cloud image | Apache 2.4, MariaDB 10.11, PHP 8.3, Composer, Certbot | ~791MB |
 
 ### Kubernetes Image Details
 
@@ -95,6 +96,16 @@ Images use cloud-init for first-boot customization:
 - **Sysctl tuned**: bridge-nf-call-iptables, ip_forward, br_netfilter
 - **Swap disabled**, kubelet enabled
 - Ready for `kubeadm init` without internet access
+
+### LAMP Stack Details
+
+- **Apache 2.4** with mod_rewrite, SSL, headers, expires enabled
+- **MariaDB 10.11** — run `sudo mysql_secure_installation` on first boot
+- **PHP 8.3** tuned: 64M upload, 64M post, 256M memory, 120s execution
+- **Composer** for PHP dependency management
+- **Certbot** with Apache plugin for Let's Encrypt SSL
+- Landing page at `/` and phpinfo at `/info.php`
+- Default user added to `www-data` group via cloud-init
 
 > **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
 > `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,
