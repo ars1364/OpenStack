@@ -88,6 +88,7 @@ Images use cloud-init for first-boot customization:
 | Ubuntu 24.04 - Kubernetes | noble cloud image | kubeadm/kubelet/kubectl v1.32, containerd, pre-pulled K8s images | ~3.1GB |
 | Ubuntu 24.04 - LAMP Stack | noble cloud image | Apache 2.4, MariaDB 10.11, PHP 8.3, Composer, Certbot | ~791MB |
 | Ubuntu 24.04 - PostgreSQL | noble cloud image | PostgreSQL 16, PgBouncer, pg_activity, performance tuned | ~819MB |
+| Ubuntu 24.04 - Node.js | noble cloud image | Node.js 22 LTS, PM2, Nginx, Certbot, Yarn | ~990MB |
 
 ### Kubernetes Image Details
 
@@ -116,6 +117,15 @@ Images use cloud-init for first-boot customization:
 - Remote connections enabled via `scram-sha-256` auth
 - Sysctl tuned: `vm.overcommit_memory=2`, `vm.swappiness=1`
 - Slow query logging enabled (>1000ms)
+
+### Node.js Details
+
+- **Node.js 22 LTS** (NodeSource) with NPM
+- **PM2** process manager — `pm2 start app.js`, auto-restart, log management
+- **Nginx** reverse proxy with template at `/etc/nginx/sites-available/node-app`
+- **Certbot** with Nginx plugin for Let's Encrypt SSL
+- **Yarn** + **build-essential** + **git** for development
+- Configure PM2 startup: `pm2 startup && pm2 save`
 
 > **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
 > `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,

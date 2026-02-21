@@ -92,6 +92,25 @@
           - airgap-ready
           - database
 
+      nodejs:
+        display_name: "Ubuntu 24.04 - Node.js"
+        description: >-
+          Ubuntu 24.04 with Node.js 22 LTS, PM2 process manager,
+          Nginx reverse proxy, Certbot. Includes Yarn, build-essential.
+          APT mirrors: cloudinative.com. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 1024
+        marketplace_category: runtime
+        tags:
+          - marketplace
+          - nodejs
+          - ubuntu-24.04
+          - airgap-ready
+          - runtime
+          - javascript
+
   tasks:
     - name: Validate image_name
       ansible.builtin.assert:
