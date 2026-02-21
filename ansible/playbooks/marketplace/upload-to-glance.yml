@@ -111,6 +111,25 @@
           - runtime
           - javascript
 
+      wordpress:
+        display_name: "Ubuntu 24.04 - WordPress"
+        description: >-
+          Ubuntu 24.04 with WordPress (latest), Apache 2.4, MariaDB 10.11,
+          PHP 8.3, WP-CLI, Certbot. Run sudo wp-setup for first-boot
+          database configuration. APT mirrors: cloudinative.com. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 1024
+        marketplace_category: cms
+        tags:
+          - marketplace
+          - wordpress
+          - ubuntu-24.04
+          - airgap-ready
+          - cms
+          - php
+
   tasks:
     - name: Validate image_name
       ansible.builtin.assert:

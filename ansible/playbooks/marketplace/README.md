@@ -89,6 +89,7 @@ Images use cloud-init for first-boot customization:
 | Ubuntu 24.04 - LAMP Stack | noble cloud image | Apache 2.4, MariaDB 10.11, PHP 8.3, Composer, Certbot | ~791MB |
 | Ubuntu 24.04 - PostgreSQL | noble cloud image | PostgreSQL 16, PgBouncer, pg_activity, performance tuned | ~819MB |
 | Ubuntu 24.04 - Node.js | noble cloud image | Node.js 22 LTS, PM2, Nginx, Certbot, Yarn | ~990MB |
+| Ubuntu 24.04 - WordPress | noble cloud image | WordPress 6.9, Apache 2.4, MariaDB 10.11, PHP 8.3, WP-CLI | ~847MB |
 
 ### Kubernetes Image Details
 
@@ -126,6 +127,15 @@ Images use cloud-init for first-boot customization:
 - **Certbot** with Nginx plugin for Let's Encrypt SSL
 - **Yarn** + **build-essential** + **git** for development
 - Configure PM2 startup: `pm2 startup && pm2 save`
+
+### WordPress Details
+
+- **WordPress** (latest) pre-installed at `/var/www/html/`
+- **WP-CLI** for command-line WordPress management
+- **First-boot setup**: Run `sudo wp-setup` to create database and configure `wp-config.php`
+- **PHP tuned** for WordPress: 128M upload, 512M memory, 300s execution
+- **Apache** with mod_rewrite, `.htaccess` for permalinks
+- **Certbot** for Let's Encrypt SSL: `sudo certbot --apache`
 
 > **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
 > `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,
