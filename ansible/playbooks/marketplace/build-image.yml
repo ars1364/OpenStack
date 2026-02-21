@@ -115,6 +115,29 @@
           - web
           - php
 
+      postgresql:
+        display_name: "Ubuntu 24.04 - PostgreSQL"
+        description: >-
+          Ubuntu 24.04 with PostgreSQL 16, PgBouncer, pg_activity.
+          Performance tuned (shared_buffers, WAL, connections).
+          Remote connections enabled (scram-sha-256).
+          APT mirrors: cloudinative.com. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 1024
+        marketplace_category: database
+        customize_script: "customize-postgresql.sh"
+        cloud_init_configs:
+          - src: "cloud-init-postgresql.cfg"
+            dest: "99-postgresql.cfg"
+        tags:
+          - marketplace
+          - postgresql
+          - ubuntu-24.04
+          - airgap-ready
+          - database
+
   tasks:
     - name: Validate image_name
       ansible.builtin.assert:

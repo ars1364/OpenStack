@@ -87,6 +87,7 @@ Images use cloud-init for first-boot customization:
 | Ubuntu 24.04 - Docker CE | noble cloud image | Docker 29.2.1, Compose, Buildx, containerd | ~900MB |
 | Ubuntu 24.04 - Kubernetes | noble cloud image | kubeadm/kubelet/kubectl v1.32, containerd, pre-pulled K8s images | ~3.1GB |
 | Ubuntu 24.04 - LAMP Stack | noble cloud image | Apache 2.4, MariaDB 10.11, PHP 8.3, Composer, Certbot | ~791MB |
+| Ubuntu 24.04 - PostgreSQL | noble cloud image | PostgreSQL 16, PgBouncer, pg_activity, performance tuned | ~819MB |
 
 ### Kubernetes Image Details
 
@@ -106,6 +107,15 @@ Images use cloud-init for first-boot customization:
 - **Certbot** with Apache plugin for Let's Encrypt SSL
 - Landing page at `/` and phpinfo at `/info.php`
 - Default user added to `www-data` group via cloud-init
+
+### PostgreSQL Details
+
+- **PostgreSQL 16** with performance tuning (shared_buffers=256MB, max_connections=200, WAL tuning)
+- **PgBouncer** for connection pooling (transaction mode, port 6432)
+- **pg_activity** for real-time monitoring (`sudo -u postgres pg_activity`)
+- Remote connections enabled via `scram-sha-256` auth
+- Sysctl tuned: `vm.overcommit_memory=2`, `vm.swappiness=1`
+- Slow query logging enabled (>1000ms)
 
 > **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
 > `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,
