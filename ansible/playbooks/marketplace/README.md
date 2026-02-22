@@ -90,6 +90,7 @@ Images use cloud-init for first-boot customization:
 | Ubuntu 24.04 - PostgreSQL | noble cloud image | PostgreSQL 16, PgBouncer, pg_activity, performance tuned | ~819MB |
 | Ubuntu 24.04 - Node.js | noble cloud image | Node.js 22 LTS, PM2, Nginx, Certbot, Yarn | ~990MB |
 | Ubuntu 24.04 - WordPress | noble cloud image | WordPress 6.9, Apache 2.4, MariaDB 10.11, PHP 8.3, WP-CLI | ~847MB |
+| Ubuntu 24.04 - Nginx | noble cloud image | Nginx (tuned), Certbot, Fail2ban, reverse proxy templates | ~716MB |
 
 ### Kubernetes Image Details
 
@@ -136,6 +137,17 @@ Images use cloud-init for first-boot customization:
 - **PHP tuned** for WordPress: 128M upload, 512M memory, 300s execution
 - **Apache** with mod_rewrite, `.htaccess` for permalinks
 - **Certbot** for Let's Encrypt SSL: `sudo certbot --apache`
+
+### Nginx Details
+
+- **Nginx** performance tuned: gzip, security headers, `server_tokens off`, epoll
+- **Certbot** with Nginx plugin for auto-SSL
+- **Fail2ban** with nginx-specific jails (auth, botsearch, limit-req)
+- **Rate limiting** pre-configured: `general` (10r/s), `api` (30r/s)
+- **Templates** ready to use:
+  - `/etc/nginx/sites-available/reverse-proxy.conf` — proxy to backend app
+  - `/etc/nginx/sites-available/static-site.conf` — static file hosting
+- Stream module enabled for TCP/UDP proxying (`/etc/nginx/stream.d/`)
 
 > **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
 > `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,

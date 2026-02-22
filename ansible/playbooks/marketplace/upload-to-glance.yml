@@ -130,6 +130,26 @@
           - cms
           - php
 
+      nginx:
+        display_name: "Ubuntu 24.04 - Nginx"
+        description: >-
+          Ubuntu 24.04 with Nginx (performance tuned), Certbot, Fail2ban.
+          Includes reverse proxy and static site templates.
+          Rate limiting, security headers, gzip pre-configured.
+          APT mirrors: cloudinative.com. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 512
+        marketplace_category: web-server
+        tags:
+          - marketplace
+          - nginx
+          - ubuntu-24.04
+          - airgap-ready
+          - web-server
+          - reverse-proxy
+
   tasks:
     - name: Validate image_name
       ansible.builtin.assert:
