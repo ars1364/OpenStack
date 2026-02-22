@@ -208,6 +208,29 @@
           - web-server
           - reverse-proxy
 
+      redis:
+        display_name: "Ubuntu 24.04 - Redis"
+        description: >-
+          Ubuntu 24.04 with Redis (AOF + RDB persistence, memory-tuned),
+          Redis Sentinel for HA. Dangerous commands disabled. THP disabled.
+          Sysctl tuned. APT mirrors: cloudinative.com. Airgap-ready.
+        os_distro: ubuntu
+        os_version: "24.04"
+        min_disk: 10
+        min_ram: 512
+        marketplace_category: database
+        customize_script: "customize-redis.sh"
+        cloud_init_configs:
+          - src: "cloud-init-redis.cfg"
+            dest: "99-redis.cfg"
+        tags:
+          - marketplace
+          - redis
+          - ubuntu-24.04
+          - airgap-ready
+          - database
+          - cache
+
   tasks:
     - name: Validate image_name
       ansible.builtin.assert:

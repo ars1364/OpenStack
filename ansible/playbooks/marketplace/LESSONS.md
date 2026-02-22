@@ -247,7 +247,32 @@ expected — the tradeoff is instant `kubeadm init` vs. 3x image size.
 
 Consider offering both variants if storage is a concern.
 
-## 18. Snapshot-based Pre-pull vs Build-time Pre-pull
+## 18. Cloud-init Overwrites APT Sources on First Boot
+
+**Problem:** APT mirror config baked into the image (`/etc/apt/sources.list.d/ubuntu.sources`)
+gets overwritten by cloud-init on first boot, reverting to default Ubuntu mirrors.
+
+**Root cause:** Cloud-init's `apt` module re-generates APT sources based on the datasource
+(OpenStack metadata service). It doesn't preserve customizations made in the image.
+
+**Workaround options:**
+1. Set mirrors via cloud-init userdata at instance creation time
+2. Use `/etc/cloud/cloud.cfg.d/99-apt-mirrors.cfg` with `apt: primary/security` config
+3. Accept it — users who need airgap can reconfigure APT after boot
+
+For marketplace images, option 2 is best:
+```yaml
+# /etc/cloud/cloud.cfg.d/99-apt-mirrors.cfg
+apt:
+  primary:
+    - arches: [default]
+      uri: https://archive.cloudinative.com/ubuntu
+  security:
+    - arches: [default]
+      uri: https://security.cloudinative.com/ubuntu
+```
+
+## 19. Snapshot-based Pre-pull vs Build-time Pre-pull
 
 Two approaches to bake pre-pulled images:
 

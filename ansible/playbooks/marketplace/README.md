@@ -90,7 +90,8 @@ Images use cloud-init for first-boot customization:
 | Ubuntu 24.04 - PostgreSQL | noble cloud image | PostgreSQL 16, PgBouncer, pg_activity, performance tuned | ~819MB |
 | Ubuntu 24.04 - Node.js | noble cloud image | Node.js 22 LTS, PM2, Nginx, Certbot, Yarn | ~990MB |
 | Ubuntu 24.04 - WordPress | noble cloud image | WordPress 6.9, Apache 2.4, MariaDB 10.11, PHP 8.3, WP-CLI | ~847MB |
-| Ubuntu 24.04 - Nginx | noble cloud image | Nginx (tuned), Certbot, Fail2ban, reverse proxy templates | ~716MB |
+| Ubuntu 24.04 - Nginx | noble cloud image | Nginx (tuned), Certbot, Fail2ban, reverse proxy templates | ~687MB |
+| Ubuntu 24.04 - Redis | noble cloud image | Redis 7.0, Sentinel, AOF+RDB, memory-tuned, THP disabled | ~690MB |
 
 ### Kubernetes Image Details
 
@@ -148,6 +149,16 @@ Images use cloud-init for first-boot customization:
   - `/etc/nginx/sites-available/reverse-proxy.conf` — proxy to backend app
   - `/etc/nginx/sites-available/static-site.conf` — static file hosting
 - Stream module enabled for TCP/UDP proxying (`/etc/nginx/stream.d/`)
+
+### Redis Details
+
+- **Redis 7.0** with AOF + RDB persistence for durability
+- **Redis Sentinel** included for high availability setups
+- **Memory tuned**: maxmemory 256MB, allkeys-lru eviction policy
+- **Security**: dangerous commands disabled (FLUSHDB, FLUSHALL, DEBUG), password required
+- **THP disabled** via systemd service (Redis warns about this at startup)
+- **Sysctl tuned**: `vm.overcommit_memory=1`, `net.core.somaxconn=2048`
+- Default password: `CHANGEME` — **change immediately** via `redis.conf`
 
 > **⚠️ Known limitation:** containerd's CRI plugin ignores `hosts.toml` mirror configs.
 > `kubeadm config images pull` will NOT use mirrors. Pre-pulled images cover `kubeadm init`,
