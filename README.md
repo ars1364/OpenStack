@@ -92,3 +92,19 @@ Iranian DNS servers (Shecan, Radar) are unreachable from the Provider network se
 - **8.8.8.8 (Google))
 
 4.2.2.4 and 8.8.8.8 are confirmed working and resolve all required endpoints.
+
+## Kolla-Ansible Lessons Learned
+
+Hard-won lessons from deploying Kolla-Ansible 2025.1 (Ubuntu Noble) across 5-node lab and production clusters:
+
+1. **Deploy order matters: pull → mariadb → deploy** — Always run `kolla-ansible pull` first, then deploy MariaDB before other services. Skipping this causes services to fail connecting to the database.
+
+2. **passlib 1.7.4 + bcrypt 5.x incompatibility** — These versions break Kolla's password hashing. Patch passlib or pin bcrypt < 5.0 before deploying.
+
+3. **OVN SB relay crashes in Kolla 2025.1** — The OVN Southbound DB relay is unstable. Disable it with `enable_ovn_sb_db_relay: no` in `globals.yml`.
+
+4. **Cloud-init `manage_etc_hosts` must be `false`** — Otherwise cloud-init overwrites `/etc/hosts` on reboot, breaking hostname resolution between nodes.
+
+5. **Terraform + virtio: MAC-based NIC naming is the only reliable approach** — Predictable interface names in KVM/virtio VMs require pinning by MAC address in netplan. Don't rely on PCI slot ordering.
+
+> Full deployment notes: see `lab-mirror/LESSONS.md` for all 18 documented lessons.
