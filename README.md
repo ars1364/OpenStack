@@ -19,3 +19,7 @@ Infrastructure-as-Code modules for OpenStack environments, developed from real-w
 
 ## Structure
 Infrastructure modules and configurations for OpenStack resource provisioning and management.
+
+## Guides
+
+- [Recovering a Kolla-Ansible Galera split-brain — and the /etc/hosts gotcha that caused it](docs/galera-split-brain-recovery.md) — full walkthrough of diagnosing and recovering a 3-controller Kolla 2025.1 cluster after Keystone went 503, including the cloud-init `manage_etc_hosts` failure mode that re-arms the same outage on every reboot.
