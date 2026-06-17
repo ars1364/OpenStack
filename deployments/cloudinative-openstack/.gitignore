@@ -1,0 +1,12 @@
+# Never commit secrets - belt-and-suspenders rule for any contributor adding files here
+passwords.yml
+passwords.vault
+*.pem
+*.key
+*.crt
+*.kubeconfig
+kubeconfig*
+admin-openrc.sh
+*-openrc.sh
+clouds.yaml
+.env

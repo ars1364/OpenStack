@@ -18,14 +18,20 @@ Build artifacts and patches for the cloudinative-openstack all-in-one deployment
 │   ├── etcd-discovery/server.py
 │   ├── openstack-br-ex-up.service     # OVN external-bridge link-up (kolla leaves it admin-down)
 │   └── octavia-interface.service      # kolla's own o-hm0 dhclient unit, reproduced for reference
-├── patches/README.md        # the eight post-deploy patches in order
+├── host-config/
+│   ├── netplan/61-vips.yaml         # persistent internal+external HAProxy VIPs on ens3
+│   └── etc-hosts.pin                # pin openstack.cloudinative.com to local VIP (escapes wildcard fallthrough)
+├── branding/README.md               # Skyline + Horizon docker cp commands for the cloudinative logo + favicon
+├── patches/README.md                # the eight post-deploy patches in order
 ├── scripts/
-│   ├── vm-create.sh                # virt-install for the openstack VM
-│   ├── cloudinit-seed-build.sh     # build the seed ISO
-│   └── post-deploy-bootstrap.sh    # cloudinative project, flavors, network, router, SG, keypair
+│   ├── vm-create.sh                 # virt-install for the openstack VM
+│   ├── cloudinit-seed-build.sh      # build the seed ISO
+│   └── post-deploy-bootstrap.sh     # cloudinative project, flavors, network, router, SG, keypair
+├── .gitignore                       # belt-and-suspenders: blocks .pem / .key / passwords*.yml / *-openrc.sh
 └── docs/
-    ├── cloudinative-mirror.md      # *.cloudinative.com FQDN -> Nexus repo map (used by every layer)
-    └── magnum-capi-helm-plan.md    # production k8s-on-OpenStack path
+    ├── cloudinative-mirror.md       # *.cloudinative.com FQDN -> Nexus repo map (used by every layer)
+    ├── operational-inventory.md     # snapshot of what's live on the deploy (instances, networks, glance, LB, k8s)
+    └── magnum-capi-helm-plan.md     # production k8s-on-OpenStack path
 ```
 
 ## VIPs / endpoints

@@ -1,0 +1,4 @@
+# Pin openstack.cloudinative.com to the local external VIP so containers
+# (Skyline, magnum_conductor etc) don't follow the cloudinative.com wildcard
+# fallthrough to 46.245.69.209.
+95.156.253.235 openstack.cloudinative.com
