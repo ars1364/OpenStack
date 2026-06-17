@@ -1,0 +1,17 @@
+[Unit]
+Description=Octavia Interface Creator
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+Restart=on-failure
+RemainAfterExit=true
+ExecStartPre=/sbin/ip link set dev o-hm0 address fa:16:3e:ae:eb:05
+ExecStart=/sbin/dhclient -v o-hm0 -cf /etc/dhcp/octavia-dhclient.conf
+ExecStop=/sbin/dhclient -r o-hm0
+
+[Install]
+WantedBy=multi-user.target

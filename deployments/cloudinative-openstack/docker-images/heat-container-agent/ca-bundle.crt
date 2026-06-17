@@ -1,0 +1,2 @@
+# This file is the host's CA bundle, copied at image build time
+# To rebuild: cp /etc/ssl/certs/ca-certificates.crt ./ca-bundle.crt && docker build .

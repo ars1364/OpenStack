@@ -1,0 +1,13 @@
+[Unit]
+Description=Bring br-ex up (OVN external bridge - left admin-down by kolla on first deploy)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/bin/bash -c "until ip link show br-ex >/dev/null 2>&1; do sleep 2; done"
+ExecStart=/sbin/ip link set br-ex up
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

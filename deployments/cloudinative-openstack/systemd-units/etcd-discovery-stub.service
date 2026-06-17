@@ -1,0 +1,9 @@
+[Unit]
+Description=Static stub for etcd discovery URLs (Magnum FCOS driver workaround)
+After=network.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /var/etcd-discovery/server.py
+Restart=always
+[Install]
+WantedBy=multi-user.target

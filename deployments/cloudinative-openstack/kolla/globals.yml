@@ -1,0 +1,77 @@
+---
+# Base
+kolla_base_distro: "ubuntu"
+openstack_release: "2026.1"
+
+# Interfaces
+network_interface: "ens3"
+neutron_external_interface: "ens4"
+api_interface: "{{ network_interface }}"
+storage_interface: "{{ network_interface }}"
+tunnel_interface: "{{ network_interface }}"
+dns_interface: "{{ network_interface }}"
+
+# VIPs / endpoints
+kolla_internal_vip_address: "95.156.253.232"
+kolla_external_vip_address: "95.156.253.235"
+kolla_external_fqdn: "openstack.cloudinative.com"
+
+# TLS — external only (internal stays HTTP)
+kolla_enable_tls_external: "yes"
+kolla_external_fqdn_cert: "/etc/kolla/certificates/haproxy.pem"
+
+# Region / domain
+openstack_region_name: "cloudinative-1"
+
+# Core
+enable_haproxy: "yes"
+enable_keepalived: "no"
+enable_keystone: "yes"
+enable_glance: "yes"
+enable_nova: "yes"
+enable_neutron: "yes"
+neutron_plugin_agent: "ovn"
+enable_cinder: "yes"
+enable_cinder_backend_lvm: "yes"
+cinder_volume_group: "cinder-volumes"
+
+# Orchestration / DNS / LB / Secrets
+enable_heat: "yes"
+enable_octavia: "yes"
+octavia_auto_configure: "yes"
+enable_designate: "yes"
+designate_backend: "bind9"
+designate_ns_record: "ns1.cloudinative.com"
+enable_barbican: "yes"
+
+# Telemetry
+enable_ceilometer: "yes"
+enable_gnocchi: "yes"
+gnocchi_backend_storage: "file"
+enable_aodh: "yes"
+
+# Higher-level
+enable_magnum: "yes"
+enable_mistral: "yes"
+
+# Dashboards
+enable_horizon: "yes"
+enable_skyline: "yes"
+
+# Heavy services off for demo headroom
+enable_central_logging: "no"
+enable_prometheus: "no"
+enable_grafana: "no"
+
+# Nova: nested KVM
+nova_compute_virt_type: "kvm"
+nova_libvirt_cpu_mode: "host-passthrough"
+
+# Registry mirror (operator nexus proxy for quay.io openstack.kolla)
+docker_registry: "docker-quay.cloudinative.com"
+docker_namespace: "openstack.kolla"
+enable_docker_repo: "no"
+docker_apt_package: "docker.io"
+neutron_dns_domain: "cloudinative.com."
+enable_valkey: "yes"
+octavia_network_type: tenant

@@ -20,6 +20,10 @@ Infrastructure-as-Code modules for OpenStack environments, developed from real-w
 ## Structure
 Infrastructure modules and configurations for OpenStack resource provisioning and management.
 
+## Deployments
+
+- [cloudinative-openstack](deployments/cloudinative-openstack/) — Kolla-Ansible 2026.1 (Galaxy) all-in-one on a nested-KVM VM (24 vCPU / 96 GB / 1 TB), full service set incl. Octavia, Designate, Magnum, Skyline. Patches + Dockerfile overlays + systemd units + post-deploy bootstrap script — reproducible from a fresh KVM host. Also documents the planned migration off the dead `k8s_fedora_coreos_v1` Magnum driver to `magnum-capi-helm`.
+
 ## Guides
 
 - [Recovering a Kolla-Ansible Galera split-brain — and the /etc/hosts gotcha that caused it](docs/galera-split-brain-recovery.md) — full walkthrough of diagnosing and recovering a 3-controller Kolla 2025.1 cluster after Keystone went 503, including the cloud-init `manage_etc_hosts` failure mode that re-arms the same outage on every reboot.
