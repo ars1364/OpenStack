@@ -75,3 +75,7 @@ docker_apt_package: "docker.io"
 neutron_dns_domain: "cloudinative.com."
 enable_valkey: "yes"
 octavia_network_type: tenant
+
+# Branded UI images (custom build with cloudinative logo + favicon + page title)
+skyline_console_image_full: "docker.cloudinative.com/openstack.kolla/skyline-console:cloudinative-1"
+horizon_image_full: "docker.cloudinative.com/openstack.kolla/horizon:cloudinative-1"

@@ -11,8 +11,11 @@ Build artifacts and patches for the cloudinative-openstack all-in-one deployment
 │   ├── inventory            # all-in-one localhost inventory
 │   └── config/              # /etc/kolla/config/* custom overlays
 ├── docker-images/
+│   ├── build-branded-ui.sh     # build + push cloudinative-1 tags for skyline-console + horizon
+│   ├── skyline-console/Dockerfile   # base 2026.1 image + cloudinative brand assets + page title
+│   ├── horizon/Dockerfile           # base 2026.1 image + cloudinative brand assets
 │   └── heat-container-agent/   # patched openstackmagnum/heat-container-agent (CA-bundle baked in,
-│                               # /etc/sysconfig/docker pre-created for FCOS bind mount semantics)
+│                               # /etc/sysconfig/docker pre-created for FCOS bind mount semantics — archived)
 ├── systemd-units/
 │   ├── etcd-discovery-stub.service    # static etcd v2 discovery emulator (Magnum FCOS workaround)
 │   ├── etcd-discovery/server.py
