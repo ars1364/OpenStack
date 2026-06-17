@@ -24,7 +24,8 @@ Build artifacts and patches for the cloudinative-openstack all-in-one deployment
 │   ├── cloudinit-seed-build.sh     # build the seed ISO
 │   └── post-deploy-bootstrap.sh    # cloudinative project, flavors, network, router, SG, keypair
 └── docs/
-    └── magnum-capi-helm-plan.md   # production k8s-on-OpenStack path
+    ├── cloudinative-mirror.md      # *.cloudinative.com FQDN -> Nexus repo map (used by every layer)
+    └── magnum-capi-helm-plan.md    # production k8s-on-OpenStack path
 ```
 
 ## VIPs / endpoints
