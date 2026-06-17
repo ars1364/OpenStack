@@ -29,6 +29,7 @@ Build artifacts and patches for the cloudinative-openstack all-in-one deployment
 │   └── post-deploy-bootstrap.sh     # cloudinative project, flavors, network, router, SG, keypair
 ├── .gitignore                       # belt-and-suspenders: blocks .pem / .key / passwords*.yml / *-openrc.sh
 └── docs/
+    ├── build-journal.md             # every issue hit during bring-up + the exact fix (READ FIRST if rebuilding)
     ├── cloudinative-mirror.md       # *.cloudinative.com FQDN -> Nexus repo map (used by every layer)
     ├── operational-inventory.md     # snapshot of what's live on the deploy (instances, networks, glance, LB, k8s)
     └── magnum-capi-helm-plan.md     # production k8s-on-OpenStack path
